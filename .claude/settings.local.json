@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:forums.raspberrypi.com)",
+      "WebSearch",
+      "Bash(grep -r \"^\\\\s*#.*mpv\\\\|^\\\\s*#.*picom\\\\|^\\\\s*#.*video\\\\|^\\\\s*#.*xdotool\" c:/Users/junak/Documents/GitHub/dnd-table --include=*.py --include=*.html)"
+    ]
+  }
+}
