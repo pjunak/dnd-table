@@ -312,8 +312,8 @@ def register_routes(app):
         if not target.is_dir():
             return jsonify(error="Not a folder"), 404
         for f in sorted(target.iterdir()):
-            if f.is_file() and get_file_type(f.name):
-                ftype = get_file_type(f.name)
+            ftype = get_file_type(f.name) if f.is_file() else None
+            if ftype:
                 if ftype == "audio":
                     play_audio(f)
                 else:

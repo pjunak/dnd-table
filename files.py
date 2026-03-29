@@ -63,6 +63,7 @@ def browse_directory(source, rel_path):
         for i, part in enumerate(parts):
             breadcrumb.append({"name": part, "path": "/".join(parts[: i + 1])})
 
+    source_tag = "sdcard" if source == "sdcard" else "usb"
     folders = []
     files = []
     try:
@@ -75,17 +76,19 @@ def browse_directory(source, rel_path):
                     "name": item.name,
                     "protected": is_protected,
                     "path": str(item),
-                    "source": "sdcard" if source == "sdcard" else "usb",
+                    "source": source_tag,
                 })
-            elif item.is_file() and get_file_type(item.name):
-                size = item.stat().st_size
-                files.append({
-                    "name": item.name,
-                    "path": str(item),
-                    "type": get_file_type(item.name),
-                    "source": "sdcard" if source == "sdcard" else "usb",
-                    "size": f"{size / 1_048_576:.1f} MB" if size > 1_048_576 else f"{size / 1024:.0f} KB",
-                })
+            elif item.is_file():
+                ftype = get_file_type(item.name)
+                if ftype:
+                    size = item.stat().st_size
+                    files.append({
+                        "name": item.name,
+                        "path": str(item),
+                        "type": ftype,
+                        "source": source_tag,
+                        "size": f"{size / 1_048_576:.1f} MB" if size > 1_048_576 else f"{size / 1024:.0f} KB",
+                    })
     except (PermissionError, OSError):
         pass
 

@@ -58,6 +58,49 @@ var BG_RGB = [20,18,15];
 
 var angleY = 0, angleX = 0;
 
+/* ─── Rune state ─────────────────────────────────────────────────
+   faceVisible[i] — was face i visible last frame?
+   faceRunes[i]   — index into RUNE_STROKES, or -1 if unassigned.
+   A rune is picked the moment a face flips visible → hidden clears it.  */
+var faceVisible = new Array(20).fill(false);
+var faceRunes   = new Array(20).fill(-1);
+
+/* Fixed 3D rune scale: rune coord ±1 = 22% of one icosahedron edge in world space.
+   Inradius of a face = edge/(2√3) ≈ 28.9% of edge; 22% gives ~76% fill with margin.
+   Using a constant 3D size means proj() applies foreshortening exactly once —
+   the same way it affects the face geometry — so rune and triangle always match. */
+var RUNE_3D = 2/NORM * 0.22;  /* 2/NORM = icosahedron edge length on a unit sphere */
+
+/* ─── Elder Futhark — 24 runes as canvas polyline sequences ──────
+   Coordinate space: x ∈ [-0.5, 0.5], y ∈ [-1, 1]  (y+ = up).
+   Each rune is an array of strokes; each stroke is [[x,y], …].         */
+var RUNE_STROKES = [
+  /* 0  Fehu    ᚠ  staff + 2 right branches                */ [[[0,1],[0,-1]],[[0,.5],[.5,.1]],[[0,0],[.5,-.4]]],
+  /* 1  Uruz    ᚢ  left tall, right short, diagonal bridge */ [[[-0.3,1],[-0.3,-1]],[[.3,.3],[.3,-1]],[[-0.3,1],[.3,.3]]],
+  /* 2  Thurisaz ᚦ staff + rightward thorn                 */ [[[0,1],[0,-1]],[[0,.6],[.5,.1],[0,-.4]]],
+  /* 3  Ansuz   ᚨ  staff + 2 left branches                 */ [[[0,1],[0,-1]],[[0,.6],[-.5,.1]],[[0,.1],[-.5,-.4]]],
+  /* 4  Raidho  ᚱ  staff + P-loop + lower diagonal         */ [[[0,1],[0,-1]],[[0,1],[.5,.5],[.5,0],[0,0]],[[0,0],[.5,-.7]]],
+  /* 5  Kenaz   ᚲ  staff + single lower-right branch       */ [[[0,1],[0,-1]],[[0,-.2],[.5,-.8]]],
+  /* 6  Gebo    ᚷ  X cross                                 */ [[[-0.45,.9],[.45,-.9]],[[-0.45,-.9],[.45,.9]]],
+  /* 7  Wunjo   ᚹ  staff + upper-right pennant             */ [[[0,1],[0,-1]],[[0,1],[.5,.5],[0,0]]],
+  /* 8  Hagalaz ᚺ  two staffs + diagonal crossbar          */ [[[-0.3,1],[-0.3,-1]],[[.3,1],[.3,-1]],[[-0.3,.3],[.3,-.3]]],
+  /* 9  Nauthiz ᚾ  staff + crossing diagonal (need-fire)   */ [[[0,1],[0,-1]],[[.4,.7],[-.4,-.7]]],
+  /* 10 Isaz    ᛁ  single vertical staff                   */ [[[0,1],[0,-1]]],
+  /* 11 Jera    ᛃ  two offset chevrons (year cycle)        */ [[[-0.3,.9],[.3,.4],[-0.3,.1]],[[.3,-.1],[-.3,-.5],[.3,-.9]]],
+  /* 12 Eihwaz  ᛇ  staff + opposing diagonal extensions   */ [[[0,1],[0,-1]],[[0,.7],[.4,.3]],[[0,-.7],[-.4,-.3]]],
+  /* 13 Perthro ᛈ  staff + lower-right open cup            */ [[[0,1],[0,-1]],[[0,.1],[.5,.1],[.5,-.8],[0,-.8]]],
+  /* 14 Algiz   ᛉ  staff + upper fork (elk/protection)     */ [[[0,1],[0,-1]],[[0,.35],[.5,1]],[[0,.35],[-.5,1]]],
+  /* 15 Sowilo  ᛊ  angular lightning-bolt S                */ [[[.4,1],[.4,.2],[-.4,-.2],[-.4,-1]]],
+  /* 16 Tiwaz   ᛏ  upward arrow (Tyr's spear)              */ [[[0,1],[0,-1]],[[0,.5],[-.45,0]],[[0,.5],[.45,0]]],
+  /* 17 Berkano ᛒ  staff + two right bumps (birch)         */ [[[0,1],[0,-1]],[[0,.95],[.45,.65],[.45,.15],[0,0]],[[0,0],[.45,-.3],[.45,-.7],[0,-.95]]],
+  /* 18 Ehwaz   ᛖ  two staffs + center-V bridge (horse)   */ [[[-0.3,1],[-0.3,-1]],[[.3,1],[.3,-1]],[[-0.3,.5],[0,0],[.3,.5]]],
+  /* 19 Mannaz  ᛗ  two staffs + inverted-V at top (man)   */ [[[-0.3,1],[-0.3,-1]],[[.3,1],[.3,-1]],[[-0.3,.9],[0,.2],[.3,.9]]],
+  /* 20 Laguz   ᛚ  staff + lower-right rudder branch       */ [[[0,1],[0,-1]],[[0,-.2],[.45,-.85]]],
+  /* 21 Ingwaz  ᛜ  diamond (seed/fertility)                */ [[[0,.95],[.45,0],[0,-.95],[-.45,0],[0,.95]]],
+  /* 22 Dagaz   ᛞ  bowtie / hourglass (day)                */ [[[-0.45,.9],[.45,-.9],[-.45,-.9],[.45,.9],[-.45,.9]]],
+  /* 23 Othala  ᛟ  diamond on two legs (heritage)          */ [[[0,.8],[.45,.1],[0,-.4],[-.45,.1],[0,.8]],[[-0.45,.1],[-.45,-1]],[[.45,.1],[.45,-1]]],
+];
+
 function rotY(verts, a){
   var c=Math.cos(a), s=Math.sin(a);
   return verts.map(function(v){return [v[0]*c+v[2]*s, v[1], -v[0]*s+v[2]*c]});
@@ -92,16 +135,37 @@ function drawSplash(ctx, w, h){
 
   var pr = v.map(function(p){return proj(p[0],p[1],p[2],sc,cx,cy)});
 
-  /* normalise light */
+  /* Normalise light */
   var lx=0.3, ly=0.6, lz=0.8;
   var ll=Math.sqrt(lx*lx+ly*ly+lz*lz);
   lx/=ll; ly/=ll; lz/=ll;
 
+  /* Build visible face list; assign/retire runes on visibility transitions */
   var faces = [];
+  var nowVisible = new Array(20).fill(false);
+
+  /* Pool of rune indices not currently in use — rebuilt fresh each frame so
+     multiple faces turning visible in the same frame each get a distinct rune. */
+  var available = [];
+  for(var ri=0; ri<RUNE_STROKES.length; ri++){
+    var inUse = false;
+    for(var fi2=0; fi2<20; fi2++) if(faceRunes[fi2]===ri){ inUse=true; break; }
+    if(!inUse) available.push(ri);
+  }
+
   for(var fi=0; fi<FACES.length; fi++){
     var f=FACES[fi], i0=f[0], i1=f[1], i2=f[2];
     var n = faceNorm(v[i0], v[i1], v[i2]);
-    if(n[2] < -0.35) continue;
+    if(n[2] > 0) continue;  /* back-face cull */
+    nowVisible[fi] = true;
+
+    /* Pick a unique rune the first frame this face becomes visible */
+    if(!faceVisible[fi]){
+      var pick = available.length > 0
+        ? available.splice(Math.floor(Math.random() * available.length), 1)[0]
+        : Math.floor(Math.random() * RUNE_STROKES.length);  /* fallback: all 24 in use */
+      faceRunes[fi] = pick;
+    }
 
     var avgZ = (v[i0][2]+v[i1][2]+v[i2][2])/3;
     var dot = n[0]*lx + n[1]*ly + n[2]*lz;
@@ -111,13 +175,21 @@ function drawSplash(ctx, w, h){
     var g = GOLD_D[1]+(GOLD_B[1]-GOLD_D[1])*dot;
     var b = GOLD_D[2]+(GOLD_B[2]-GOLD_D[2])*dot;
 
-    faces.push({z:avgZ, p:[pr[i0],pr[i1],pr[i2]], rgb:[r,g,b], dot:dot});
+    faces.push({z:avgZ, fi:fi, p:[pr[i0],pr[i1],pr[i2]], rgb:[r,g,b], dot:dot});
   }
 
-  faces.sort(function(a,b){return a.z-b.z});
+  /* Retire runes for faces that just flipped hidden */
+  for(var fi=0; fi<20; fi++){
+    if(faceVisible[fi] && !nowVisible[fi]) faceRunes[fi] = -1;
+    faceVisible[fi] = nowVisible[fi];
+  }
+
+  faces.sort(function(a,b){return b.z-a.z});  /* back-to-front (painter's algorithm) */
 
   for(var di=0; di<faces.length; di++){
     var fd=faces[di], p=fd.p;
+
+    /* Face fill */
     ctx.beginPath();
     ctx.moveTo(p[0][0],p[0][1]);
     ctx.lineTo(p[1][0],p[1][1]);
@@ -125,10 +197,66 @@ function drawSplash(ctx, w, h){
     ctx.closePath();
     ctx.fillStyle='rgb('+Math.round(fd.rgb[0])+','+Math.round(fd.rgb[1])+','+Math.round(fd.rgb[2])+')';
     ctx.fill();
+
+    /* Face edges */
     var ea = 0.3 + fd.dot*0.3;
     ctx.strokeStyle='rgba('+GOLD_B.join(',')+','+ea+')';
     ctx.lineWidth=1.2;
+    ctx.lineCap='butt';
+    ctx.lineJoin='miter';
     ctx.stroke();
+
+    /* Rune — co-oriented with the face via a projected 3D local basis.
+       Local X = first edge direction; Local Y = cross(normal, X).
+       Both are projected to screen space so the rune inherits the face's
+       rotation AND perspective foreshortening (carving effect).           */
+    var ri = faceRunes[fd.fi];
+    if(ri >= 0){
+      /* 3D vertex indices for this face */
+      var vi0=FACES[fd.fi][0], vi1=FACES[fd.fi][1], vi2=FACES[fd.fi][2];
+
+      /* 3D centroid */
+      var c3x=(v[vi0][0]+v[vi1][0]+v[vi2][0])/3;
+      var c3y=(v[vi0][1]+v[vi1][1]+v[vi2][1])/3;
+      var c3z=(v[vi0][2]+v[vi1][2]+v[vi2][2])/3;
+
+      /* Local X: first edge of face, normalised */
+      var ex2=v[vi1][0]-v[vi0][0], ey2=v[vi1][1]-v[vi0][1], ez2=v[vi1][2]-v[vi0][2];
+      var el2=Math.sqrt(ex2*ex2+ey2*ey2+ez2*ez2); ex2/=el2; ey2/=el2; ez2/=el2;
+
+      /* Local Y: cross(face_normal, local_X) — in face plane, ⊥ to X */
+      var fn=faceNorm(v[vi0],v[vi1],v[vi2]);
+      var ux2=fn[1]*ez2-fn[2]*ey2, uy2=fn[2]*ex2-fn[0]*ez2, uz2=fn[0]*ey2-fn[1]*ex2;
+
+      /* Map a rune local coord (rx,ry) to a 3D point on the face surface,
+         then project through the exact same pipeline as the triangle vertices.
+         Every rune point gets its own 4/(4+z) factor — no approximation.   */
+      var rp = function(rx, ry){
+        return proj(
+          c3x + (rx*ex2 + ry*ux2) * RUNE_3D,
+          c3y + (rx*ey2 + ry*uy2) * RUNE_3D,
+          c3z + (rx*ez2 + ry*uz2) * RUNE_3D,
+          sc, cx, cy
+        );
+      };
+
+      /* Line width: screen length of one RUNE_3D step along local Y */
+      var lw0=rp(0,0), lw1=rp(0,1);
+      var lw=Math.max(0.8, Math.sqrt((lw1[0]-lw0[0])*(lw1[0]-lw0[0])+(lw1[1]-lw0[1])*(lw1[1]-lw0[1]))*0.11);
+
+      ctx.strokeStyle='rgba(255,242,160,0.82)';
+      ctx.lineWidth=lw;
+      ctx.lineCap='round';
+      ctx.lineJoin='round';
+      ctx.beginPath();
+      var strokes=RUNE_STROKES[ri];
+      for(var s=0; s<strokes.length; s++){
+        var pts=strokes[s], q=rp(pts[0][0],pts[0][1]);
+        ctx.moveTo(q[0],q[1]);
+        for(var pp=1; pp<pts.length; pp++){q=rp(pts[pp][0],pts[pp][1]); ctx.lineTo(q[0],q[1]);}
+      }
+      ctx.stroke();
+    }
   }
 
   /* Title */
@@ -333,16 +461,17 @@ function playMedia(url, fileType){
     imgEl.style.display = 'none';
     vidEl.style.display = 'none';
     vidEl.src = url;
+    var _safetyTimer = setTimeout(function(){
+      _safetyTimer = null;
+      vidEl.style.display = 'block';
+      hideSplash();
+    }, 500);
     vidEl.oncanplay = function(){
+      clearTimeout(_safetyTimer);
       vidEl.style.display = 'block';
       hideSplash();
       vidEl.oncanplay = null;
     };
-    /* Safety: if canplay never fires, show after 500ms (media layer bg is black) */
-    setTimeout(function(){
-      vidEl.style.display = 'block';
-      hideSplash();
-    }, 500);
     vidEl.play().catch(function(){});
     mediaLayer.style.display = 'block';
   }

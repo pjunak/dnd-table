@@ -52,32 +52,31 @@ def _detect_output():
     return "HDMI-1"  # sensible default for RPi
 
 
-def apply_color_range(mode):
+def apply_color_range(mode, output=None):
     """Set Broadcast RGB to 'Full' or 'Limited 16:235'.
 
     This controls whether the HDMI output uses full PC range (0-255)
     or the limited TV range (16-235). TVs that expect limited range
     will crush blacks and clip whites when receiving full-range signal.
     """
-    output = _detect_output()
-    if mode == "limited":
-        value = "Limited 16:235"
-    else:
-        value = "Full"
+    if output is None:
+        output = _detect_output()
+    value = "Limited 16:235" if mode == "limited" else "Full"
     ok = _xrandr("--output", output, "--set", "Broadcast RGB", value)
     if ok:
         log.info("Set Broadcast RGB = %s on %s", value, output)
     return ok
 
 
-def apply_underscan(enabled):
+def apply_underscan(enabled, output=None):
     """Toggle underscan property on the output.
 
     When enabled, tells the TV/monitor via HDMI metadata that the
     signal is already underscanned, so the TV should not apply its
     own overscan cropping.
     """
-    output = _detect_output()
+    if output is None:
+        output = _detect_output()
     value = "on" if enabled else "off"
     # Try the common property names used by different GPU drivers
     for prop in ("underscan", "underscan support"):
@@ -92,14 +91,15 @@ def apply_underscan(enabled):
     return False
 
 
-def apply_sharpness(enabled):
+def apply_sharpness(enabled, output=None):
     """Set scaling mode to None (dot-by-dot) or Full (GPU-scaled).
 
     Dot-by-dot / 'None' scaling tells the GPU not to scale the output,
     which avoids blurry interpolation on TVs. This is sometimes called
     'Just Scan' or '1:1 pixel mapping' on TVs.
     """
-    output = _detect_output()
+    if output is None:
+        output = _detect_output()
     value = "None" if enabled else "Full"
     for prop in ("scaling mode", "scaler"):
         if _xrandr("--output", output, "--set", prop, value):
@@ -111,6 +111,7 @@ def apply_sharpness(enabled):
 
 def apply_all_tv_settings(color_range, underscan, sharpness):
     """Apply all TV-related xrandr settings at once."""
-    apply_color_range(color_range)
-    apply_underscan(underscan)
-    apply_sharpness(sharpness)
+    output = _detect_output()
+    apply_color_range(color_range, output)
+    apply_underscan(underscan, output)
+    apply_sharpness(sharpness, output)

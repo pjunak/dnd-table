@@ -49,7 +49,7 @@ _DEFAULTS = {
 
 def _settings_path():
     """Return the settings file path, preferring the canonical location."""
-    if SETTINGS_FILE.parent.exists():
+    if SETTINGS_FILE.parent.is_dir():
         return SETTINGS_FILE
     return _FALLBACK_FILE
 

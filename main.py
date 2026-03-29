@@ -15,6 +15,7 @@ Usage:
 
 import atexit
 import os
+import socket
 import subprocess
 import threading
 import time
@@ -39,10 +40,21 @@ register_routes(app)
 _chromium_proc = None
 
 
+def _wait_for_flask(host="127.0.0.1", port=5000, timeout=15):
+    """Poll until Flask is accepting connections."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return
+        except OSError:
+            time.sleep(0.1)
+
+
 def _launch_chromium():
     """Launch Chromium in kiosk mode."""
     global _chromium_proc
-    time.sleep(3)  # wait for Flask to be ready
+    _wait_for_flask()
 
     env = os.environ.copy()
     env["DISPLAY"] = DISPLAY
