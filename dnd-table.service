@@ -1,0 +1,18 @@
+[Unit]
+Description=DnD Table Display Server
+After=graphical.target lightdm.service
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=dnd
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/dnd/.Xauthority
+WorkingDirectory=/opt/dnd-table
+ExecStartPre=/bin/bash /opt/dnd-table/setup-display.sh
+ExecStart=/usr/bin/python3 /opt/dnd-table/main.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical.target

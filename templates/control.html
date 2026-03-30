@@ -285,12 +285,9 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 <!-- ═══ SETTINGS TAB ═══ -->
 <div id="tab-settings" class="tab-content">
 
-  <!-- Display Mode -->
+  <!-- Display -->
   <div class="card">
-    <div class="card-title">Display Mode</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
-      Choose how your output device is connected.
-    </p>
+    <div class="card-title">Display</div>
     <div class="row">
       <button class="btn active" id="dm-display" onclick="setDisplayMode('display')">Display</button>
       <button class="btn" id="dm-tv" onclick="setDisplayMode('tv')">TV</button>
@@ -298,40 +295,105 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     <p id="dm-desc" style="font-size:0.75em;color:var(--text-dim);margin-top:6px">
       Direct display output, no TV adjustments needed.
     </p>
-  </div>
 
-  <!-- TV Settings (shown only in TV mode) -->
-  <div class="card" id="tv-settings-card" style="display:none">
-    <div class="card-title">TV Picture Correction</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
-      Fix common HDMI-to-TV picture issues like crushed blacks, washed-out colors, and blurry edges.
-    </p>
+    <!-- TV-only section -->
+    <div id="tv-section" style="display:none">
+      <div style="border-top:1px solid var(--border);margin:10px 0"></div>
 
-    <div class="row" style="justify-content:space-between">
-      <div>
-        <label style="font-size:0.85em;color:var(--text)">Color Range</label>
-        <div style="font-size:0.7em;color:var(--text-dim)">Full RGB (PC) or Limited (TV 16-235)</div>
-      </div>
-      <div style="display:flex;gap:4px">
-        <button class="btn btn-sm active" id="tv-cr-full" onclick="setTvSetting('tv_color_range','full')">Full</button>
-        <button class="btn btn-sm" id="tv-cr-limited" onclick="setTvSetting('tv_color_range','limited')">Limited</button>
-      </div>
-    </div>
+      <div class="card-title" style="margin-bottom:8px">TV Picture Correction</div>
+      <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+        Fix common HDMI-to-TV picture issues like crushed blacks, washed-out colors, and blurry edges.
+      </p>
 
-    <div class="row" style="margin-top:10px;justify-content:space-between">
-      <div>
-        <label style="font-size:0.85em;color:var(--text)">Underscan Signal</label>
-        <div style="font-size:0.7em;color:var(--text-dim)">Tell the TV not to crop the picture edges</div>
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <label style="font-size:0.85em;color:var(--text)">Color Range</label>
+          <div style="font-size:0.7em;color:var(--text-dim)">Full RGB (PC) or Limited (TV 16-235)</div>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-sm active" id="tv-cr-full" onclick="setTvSetting('tv_color_range','full')">Full</button>
+          <button class="btn btn-sm" id="tv-cr-limited" onclick="setTvSetting('tv_color_range','limited')">Limited</button>
+        </div>
       </div>
-      <button class="btn btn-sm" id="tv-underscan" onclick="toggleTvBool('tv_underscan')">Off</button>
-    </div>
 
-    <div class="row" style="margin-top:10px;justify-content:space-between">
-      <div>
-        <label style="font-size:0.85em;color:var(--text)">Dot-by-Dot</label>
-        <div style="font-size:0.7em;color:var(--text-dim)">Disable GPU scaling for sharp 1:1 pixels</div>
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <div>
+          <label style="font-size:0.85em;color:var(--text)">Underscan Signal</label>
+          <div style="font-size:0.7em;color:var(--text-dim)">Tell the TV not to crop the picture edges</div>
+        </div>
+        <button class="btn btn-sm" id="tv-underscan" onclick="toggleTvBool('tv_underscan')">Off</button>
       </div>
-      <button class="btn btn-sm" id="tv-sharpness" onclick="toggleTvBool('tv_sharpness')">Off</button>
+
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <div>
+          <label style="font-size:0.85em;color:var(--text)">Dot-by-Dot</label>
+          <div style="font-size:0.7em;color:var(--text-dim)">Disable GPU scaling for sharp 1:1 pixels</div>
+        </div>
+        <button class="btn btn-sm" id="tv-sharpness" onclick="toggleTvBool('tv_sharpness')">Off</button>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-sm" id="btn-tv-preview"
+          onmousedown="tvPreview(true)" onmouseup="tvPreview(false)"
+          ontouchstart="tvPreview(true);event.preventDefault()" ontouchend="tvPreview(false)"
+          onmouseleave="tvPreview(false)">Hold to Preview Without Corrections</button>
+      </div>
+
+      <div style="border-top:1px solid var(--border);margin:10px 0"></div>
+
+      <div class="card-title" style="margin-bottom:8px">Overscan Calibration</div>
+      <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+        Adjust until the red border disappears behind the TV edges and the green border is just visible.
+      </p>
+      <div class="row">
+        <button class="btn btn-sm" id="os-toggle" onclick="toggleOverscan()">Start Calibration</button>
+      </div>
+      <div id="overscan-controls" style="display:none">
+        <div class="row" style="margin-top:8px">
+          <label>Top</label>
+          <div class="stepper">
+            <button class="btn-step" onclick="osStep('top',-1)">-</button>
+            <input type="range" min="0" max="80" value="0" step="1" id="os-top"
+              oninput="setOverscan()">
+            <button class="btn-step" onclick="osStep('top',1)">+</button>
+          </div>
+          <span class="val" id="os-top-v">0</span>
+        </div>
+        <div class="row">
+          <label>Bottom</label>
+          <div class="stepper">
+            <button class="btn-step" onclick="osStep('bottom',-1)">-</button>
+            <input type="range" min="0" max="80" value="0" step="1" id="os-bottom"
+              oninput="setOverscan()">
+            <button class="btn-step" onclick="osStep('bottom',1)">+</button>
+          </div>
+          <span class="val" id="os-bottom-v">0</span>
+        </div>
+        <div class="row">
+          <label>Left</label>
+          <div class="stepper">
+            <button class="btn-step" onclick="osStep('left',-1)">-</button>
+            <input type="range" min="0" max="80" value="0" step="1" id="os-left"
+              oninput="setOverscan()">
+            <button class="btn-step" onclick="osStep('left',1)">+</button>
+          </div>
+          <span class="val" id="os-left-v">0</span>
+        </div>
+        <div class="row">
+          <label>Right</label>
+          <div class="stepper">
+            <button class="btn-step" onclick="osStep('right',-1)">-</button>
+            <input type="range" min="0" max="80" value="0" step="1" id="os-right"
+              oninput="setOverscan()">
+            <button class="btn-step" onclick="osStep('right',1)">+</button>
+          </div>
+          <span class="val" id="os-right-v">0</span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn-sm btn-play" onclick="applyOverscan()">Apply</button>
+          <button class="btn btn-sm btn-stop" onclick="cancelOverscan()">Cancel</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -369,61 +431,15 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     </div>
   </div>
 
-  <!-- Overscan Calibration (TV mode only) -->
-  <div class="card" id="overscan-card" style="display:none">
-    <div class="card-title">Overscan Calibration</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
-      Adjust until the red border disappears behind the TV edges and the green border is just visible.
-    </p>
+  <!-- System -->
+  <div class="card">
+    <div class="card-title">System</div>
     <div class="row">
-      <button class="btn btn-sm" id="os-toggle" onclick="toggleOverscan()">Start Calibration</button>
+      <button class="btn btn-sm" onclick="sysAction('restart')">Restart Service</button>
+      <button class="btn btn-sm" onclick="sysAction('reboot')">Reboot</button>
+      <button class="btn btn-sm btn-stop" onclick="sysAction('shutdown')">Shut Down</button>
     </div>
-    <div id="overscan-controls" style="display:none">
-      <div class="row" style="margin-top:8px">
-        <label>Top</label>
-        <div class="stepper">
-          <button class="btn-step" onclick="osStep('top',-1)">-</button>
-          <input type="range" min="0" max="80" value="0" step="1" id="os-top"
-            oninput="setOverscan()">
-          <button class="btn-step" onclick="osStep('top',1)">+</button>
-        </div>
-        <span class="val" id="os-top-v">0</span>
-      </div>
-      <div class="row">
-        <label>Bottom</label>
-        <div class="stepper">
-          <button class="btn-step" onclick="osStep('bottom',-1)">-</button>
-          <input type="range" min="0" max="80" value="0" step="1" id="os-bottom"
-            oninput="setOverscan()">
-          <button class="btn-step" onclick="osStep('bottom',1)">+</button>
-        </div>
-        <span class="val" id="os-bottom-v">0</span>
-      </div>
-      <div class="row">
-        <label>Left</label>
-        <div class="stepper">
-          <button class="btn-step" onclick="osStep('left',-1)">-</button>
-          <input type="range" min="0" max="80" value="0" step="1" id="os-left"
-            oninput="setOverscan()">
-          <button class="btn-step" onclick="osStep('left',1)">+</button>
-        </div>
-        <span class="val" id="os-left-v">0</span>
-      </div>
-      <div class="row">
-        <label>Right</label>
-        <div class="stepper">
-          <button class="btn-step" onclick="osStep('right',-1)">-</button>
-          <input type="range" min="0" max="80" value="0" step="1" id="os-right"
-            oninput="setOverscan()">
-          <button class="btn-step" onclick="osStep('right',1)">+</button>
-        </div>
-        <span class="val" id="os-right-v">0</span>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button class="btn btn-sm btn-play" onclick="applyOverscan()">Apply</button>
-        <button class="btn btn-sm btn-stop" onclick="cancelOverscan()">Cancel</button>
-      </div>
-    </div>
+    <p id="sys-msg" style="font-size:0.75em;color:var(--text-dim);margin-top:6px;display:none"></p>
   </div>
 
 </div>
@@ -657,8 +673,7 @@ function _syncDisplayMode(d){
   document.getElementById('dm-desc').textContent=isTv
     ?'TV mode: overscan calibration and picture correction enabled.'
     :'Direct display output, no TV adjustments needed.';
-  document.getElementById('tv-settings-card').style.display=isTv?'block':'none';
-  document.getElementById('overscan-card').style.display=isTv?'block':'none';
+  document.getElementById('tv-section').style.display=isTv?'block':'none';
 
   /* TV sub-settings */
   document.getElementById('tv-cr-full').classList.toggle('active',d.tv_color_range==='full');
@@ -669,6 +684,23 @@ function _syncDisplayMode(d){
   var shBtn=document.getElementById('tv-sharpness');
   shBtn.textContent=d.tv_sharpness?'On':'Off';
   shBtn.classList.toggle('active',!!d.tv_sharpness);
+}
+
+function sysAction(action){
+  var labels={restart:'Restarting service…',reboot:'Rebooting…',shutdown:'Shutting down…'};
+  var msg=document.getElementById('sys-msg');
+  msg.textContent=labels[action]||'…';
+  msg.style.display='block';
+  api('/system',{action:action});
+}
+
+var _tvPreviewActive=false;
+function tvPreview(on){
+  if(on===_tvPreviewActive)return;
+  _tvPreviewActive=on;
+  var btn=document.getElementById('btn-tv-preview');
+  btn.classList.toggle('active',on);
+  api('/tv_preview',{active:on});
 }
 
 /* ─── Upload ─── */
