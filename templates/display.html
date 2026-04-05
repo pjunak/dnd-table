@@ -57,6 +57,8 @@ var GOLD_D = [89,71,31];     /* dark */
 var BG_RGB = [20,18,15];
 
 var angleY = 0, angleX = 0;
+var splashIPs = [];
+fetch('/api/ips').then(function(r){return r.json();}).then(function(d){splashIPs=d.ips||[];}).catch(function(){});
 
 /* ─── Rune state ─────────────────────────────────────────────────
    faceVisible[i] — was face i visible last frame?
@@ -268,7 +270,13 @@ function drawSplash(ctx, w, h){
 
   ctx.fillStyle='rgba('+GOLD_M.join(',')+',0.5)';
   ctx.font=Math.round(h*0.02)+'px sans-serif';
-  ctx.fillText('dndtable.local:5000', cx, titleY + h*0.04);
+  ctx.fillText('dndtable.local', cx, titleY + h*0.04);
+
+  ctx.fillStyle='rgba('+GOLD_M.join(',')+',0.35)';
+  ctx.font=Math.round(h*0.015)+'px sans-serif';
+  if(splashIPs.length > 0){
+    ctx.fillText(splashIPs.join('  \u00b7  '), cx, titleY + h*0.062);
+  }
 
   angleY += 0.012;
   angleX += 0.004;

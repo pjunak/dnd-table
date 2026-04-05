@@ -511,6 +511,18 @@ def register_routes(app):
             return jsonify(error="unknown action"), 400
         return jsonify(ok=True)
 
+    @app.route("/api/ips")
+    def api_ips():
+        """Return current IPv4 addresses of this machine."""
+        try:
+            result = subprocess.run(
+                ["hostname", "-I"], capture_output=True, text=True, timeout=2
+            )
+            ips = [ip for ip in result.stdout.strip().split() if ":" not in ip]
+        except Exception:
+            ips = []
+        return jsonify(ips=ips)
+
     @app.route("/tv_preview", methods=["POST"])
     def tv_preview():
         """Temporarily apply neutral (no corrections) or restore saved TV settings.

@@ -10,6 +10,8 @@ Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/dnd/.Xauthority
 WorkingDirectory=/opt/dnd-table
 ExecStartPre=/bin/bash /opt/dnd-table/setup-display.sh
+ExecStartPre=+/bin/bash -c '/usr/sbin/iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 5000 2>/dev/null || /usr/sbin/iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 5000'
+ExecStartPre=+/bin/bash -c '/usr/sbin/iptables -t nat -C OUTPUT -p tcp -d 127.0.0.1 --dport 80 -j REDIRECT --to-port 5000 2>/dev/null || /usr/sbin/iptables -t nat -A OUTPUT -p tcp -d 127.0.0.1 --dport 80 -j REDIRECT --to-port 5000'
 ExecStart=/usr/bin/python3 /opt/dnd-table/main.py
 Restart=on-failure
 RestartSec=10

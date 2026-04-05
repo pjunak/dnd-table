@@ -10,7 +10,7 @@ echo "==> Installing DnD Table..."
 
 # Install dependencies
 echo "==> Installing dependencies..."
-sudo apt-get install -y python3-flask mpv avahi-daemon rsync
+sudo apt-get install -y python3-flask mpv avahi-daemon rsync iptables
 
 # Create install directory and copy files
 echo "==> Copying files to $INSTALL_DIR..."

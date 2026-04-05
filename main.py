@@ -117,7 +117,7 @@ if __name__ == "__main__":
     print(f"  SD card  : {MEDIA_DIRS['sdcard']}")
     print(f"  Uploads  : {UPLOAD_DIR}")
     print(f"  Display  : Chromium kiosk → http://localhost:5000/display")
-    print(f"  Control  : http://dndtable.local:5000\n")
+    print(f"  Control  : http://dndtable.local  (port 80→5000 via iptables)\n")
 
     ensure_default_folders()
 
