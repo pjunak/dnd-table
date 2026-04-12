@@ -53,7 +53,7 @@ var FACES = [
 
 var GOLD_B = [209,173,79];   /* bright */
 var GOLD_M = [153,122,51];   /* mid */
-var GOLD_D = [89,71,31];     /* dark */
+var GOLD_D = [120,97,45];    /* dark */
 var BG_RGB = [20,18,15];
 
 var angleY = 0, angleX = 0;
@@ -171,7 +171,7 @@ function drawSplash(ctx, w, h){
 
     var avgZ = (v[i0][2]+v[i1][2]+v[i2][2])/3;
     var dot = n[0]*lx + n[1]*ly + n[2]*lz;
-    dot = Math.max(0, Math.min(1, dot*0.5+0.5));
+    dot = Math.max(0.35, Math.min(1, dot*0.5+0.5));
 
     var r = GOLD_D[0]+(GOLD_B[0]-GOLD_D[0])*dot;
     var g = GOLD_D[1]+(GOLD_B[1]-GOLD_D[1])*dot;
@@ -278,7 +278,7 @@ function drawSplash(ctx, w, h){
     ctx.fillText(splashIPs.join('  \u00b7  '), cx, titleY + h*0.062);
   }
 
-  angleY += 0.012;
+  angleY += 0.018;
   angleX += 0.004;
 }
 

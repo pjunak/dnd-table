@@ -22,6 +22,7 @@ from config import MEDIA_DIRS, UPLOAD_DIR, PROTECTED_FOLDERS
 from media import get_file_type, kill_audio, play_audio, set_audio_volume
 from files import detect_usb_drives, get_source_roots, browse_directory
 from display import apply_color_range, apply_underscan, apply_sharpness, apply_all_tv_settings
+from boot_config import read_boot_config, write_overscan_config
 
 log = logging.getLogger(__name__)
 
@@ -212,6 +213,9 @@ def register_routes(app):
             tv_color_range=state.tv_color_range,
             tv_underscan=state.tv_underscan,
             tv_sharpness=state.tv_sharpness,
+            tv_props_available=state.tv_props_available,
+            platform_info=state.platform_info,
+            boot_overscan=state.boot_overscan,
         )
 
     @app.route("/sources")
@@ -458,6 +462,9 @@ def register_routes(app):
             tv_color_range=state.tv_color_range,
             tv_underscan=state.tv_underscan,
             tv_sharpness=state.tv_sharpness,
+            tv_props_available=state.tv_props_available,
+            platform_info=state.platform_info,
+            boot_overscan=state.boot_overscan,
         )
 
     @app.route("/display_mode", methods=["POST"])
@@ -495,7 +502,44 @@ def register_routes(app):
             tv_color_range=state.tv_color_range,
             tv_underscan=state.tv_underscan,
             tv_sharpness=state.tv_sharpness,
+            tv_props_available=state.tv_props_available,
+            platform_info=state.platform_info,
+            boot_overscan=state.boot_overscan,
         )
+
+    # ─── Hardware overscan (config.txt) ────────────────────────────
+
+    @app.route("/boot_config", methods=["GET"])
+    def boot_config_get():
+        state.boot_overscan = read_boot_config()
+        return jsonify(
+            platform_info=state.platform_info,
+            boot_overscan=state.boot_overscan,
+        )
+
+    @app.route("/boot_config/apply", methods=["POST"])
+    def boot_config_apply():
+        """Write current CSS overscan values to config.txt, reset CSS
+        overscan to 0, and reboot so the hardware applies them."""
+        os_state = state.overscan_state
+        top = os_state.get("top", 0)
+        bottom = os_state.get("bottom", 0)
+        left = os_state.get("left", 0)
+        right = os_state.get("right", 0)
+
+        ok = write_overscan_config(top, bottom, left, right)
+        if not ok:
+            return jsonify(error="Failed to write config.txt"), 500
+
+        # Reset CSS overscan since hardware will handle it
+        state.overscan_state.update({"top": 0, "bottom": 0, "left": 0, "right": 0,
+                                     "calibration": False})
+        _persist()
+
+        # Reboot to apply
+        subprocess.Popen(["sudo", "reboot"])
+        return jsonify(ok=True, written={"top": top, "bottom": bottom,
+                                         "left": left, "right": right})
 
     @app.route("/system", methods=["POST"])
     def system_action():

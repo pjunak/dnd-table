@@ -115,3 +115,29 @@ def apply_all_tv_settings(color_range, underscan, sharpness):
     apply_color_range(color_range, output)
     apply_underscan(underscan, output)
     apply_sharpness(sharpness, output)
+
+
+def probe_tv_properties():
+    """Check which xrandr TV properties are available on the current output."""
+    result = {"color_range": False, "underscan": False, "sharpness": False}
+    env = os.environ.copy()
+    env["DISPLAY"] = DISPLAY
+    try:
+        proc = subprocess.run(
+            ["xrandr", "--display", DISPLAY, "--props"],
+            capture_output=True, text=True, timeout=5, env=env,
+        )
+        text = proc.stdout
+        if "Broadcast RGB" in text:
+            result["color_range"] = True
+        for prop in ("underscan", "underscan support"):
+            if prop in text.lower():
+                result["underscan"] = True
+                break
+        for prop in ("scaling mode", "scaler"):
+            if prop.lower() in text.lower():
+                result["sharpness"] = True
+                break
+    except Exception as e:
+        log.warning("Could not probe xrandr properties: %s", e)
+    return result

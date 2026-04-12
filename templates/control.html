@@ -319,7 +319,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
       <div class="row" style="margin-top:10px;justify-content:space-between">
         <div>
           <label style="font-size:0.85em;color:var(--text)">Underscan Signal</label>
-          <div style="font-size:0.7em;color:var(--text-dim)">Tell the TV not to crop the picture edges</div>
+          <div id="tv-underscan-desc" style="font-size:0.7em;color:var(--text-dim)">Tell the TV not to crop the picture edges</div>
         </div>
         <button class="btn btn-sm" id="tv-underscan" onclick="toggleTvBool('tv_underscan')">Off</button>
       </div>
@@ -327,7 +327,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
       <div class="row" style="margin-top:10px;justify-content:space-between">
         <div>
           <label style="font-size:0.85em;color:var(--text)">Dot-by-Dot</label>
-          <div style="font-size:0.7em;color:var(--text-dim)">Disable GPU scaling for sharp 1:1 pixels</div>
+          <div id="tv-sharpness-desc" style="font-size:0.7em;color:var(--text-dim)">Disable GPU scaling for sharp 1:1 pixels</div>
         </div>
         <button class="btn btn-sm" id="tv-sharpness" onclick="toggleTvBool('tv_sharpness')">Off</button>
       </div>
@@ -394,6 +394,20 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
           <button class="btn btn-sm btn-stop" onclick="cancelOverscan()">Cancel</button>
         </div>
       </div>
+
+      <!-- Hardware overscan (RPi only) -->
+      <div id="hw-overscan-section" style="display:none">
+        <div style="border-top:1px solid var(--border);margin:10px 0"></div>
+        <div class="card-title" style="margin-bottom:8px">Hardware Overscan</div>
+        <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+          Save the calibrated overscan values to the boot config for signal-level correction. Requires a reboot to apply.
+        </p>
+        <p id="hw-overscan-info" style="font-size:0.75em;color:var(--text-dim);margin-bottom:8px;display:none"></p>
+        <div class="row">
+          <button class="btn btn-sm" onclick="applyHwOverscan()">Apply to config.txt &amp; Reboot</button>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -684,6 +698,49 @@ function _syncDisplayMode(d){
   var shBtn=document.getElementById('tv-sharpness');
   shBtn.textContent=d.tv_sharpness?'On':'Off';
   shBtn.classList.toggle('active',!!d.tv_sharpness);
+
+  /* Grey out unavailable xrandr properties */
+  var avail=d.tv_props_available||{};
+  _setTvPropAvail('tv-underscan','tv-underscan-desc',avail.underscan);
+  _setTvPropAvail('tv-sharpness','tv-sharpness-desc',avail.sharpness);
+
+  /* Show hardware overscan info if on RPi */
+  var hwOs=document.getElementById('hw-overscan-section');
+  if(hwOs){
+    var isRpi=d.platform_info&&d.platform_info.is_rpi;
+    hwOs.style.display=isRpi?'block':'none';
+    if(isRpi&&d.boot_overscan){
+      var info=document.getElementById('hw-overscan-info');
+      if(info){
+        var bo=d.boot_overscan;
+        var hasHw=bo.top||bo.bottom||bo.left||bo.right;
+        info.textContent=hasHw
+          ?'Hardware overscan active: T:'+bo.top+' B:'+bo.bottom+' L:'+bo.left+' R:'+bo.right
+          :'No hardware overscan set in config.txt';
+        info.style.display='block';
+      }
+    }
+  }
+}
+
+function _setTvPropAvail(btnId,descId,available){
+  var btn=document.getElementById(btnId);
+  var desc=document.getElementById(descId);
+  if(available===false){
+    btn.disabled=true;
+    btn.style.opacity='0.4';
+    btn.style.pointerEvents='none';
+    if(desc) desc.textContent='Not available on this hardware';
+  }
+}
+
+function applyHwOverscan(){
+  if(!confirm('This will save the current overscan values to the boot config and reboot.\n\nThe visual calibration will reset to 0 after reboot since the hardware will handle it.\n\nContinue?'))return;
+  toast('Writing to config.txt and rebooting…');
+  api('/boot_config/apply',{}).then(function(d){
+    if(d&&d.error){toast('Error: '+d.error);return;}
+    toast('Rebooting…');
+  });
 }
 
 function sysAction(action){
@@ -1000,7 +1057,10 @@ function refreshStatus(){
       display_mode:d.display_mode||'display',
       tv_color_range:d.tv_color_range||'full',
       tv_underscan:!!d.tv_underscan,
-      tv_sharpness:!!d.tv_sharpness
+      tv_sharpness:!!d.tv_sharpness,
+      tv_props_available:d.tv_props_available,
+      platform_info:d.platform_info,
+      boot_overscan:d.boot_overscan
     });
   });
 }

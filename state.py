@@ -46,3 +46,10 @@ display_mode = "display"       # "display" or "tv"
 tv_color_range = "full"        # "full" or "limited"
 tv_underscan = False           # enable underscan via xrandr
 tv_sharpness = False           # disable GPU scaling (dot-by-dot)
+
+# ─── TV property availability (probed at startup) ──────────────
+tv_props_available = {"color_range": False, "underscan": False, "sharpness": False}
+
+# ─── Platform info (detected at startup) ───────────────────────
+platform_info = {}             # {"is_rpi": bool, "model": str|None}
+boot_overscan = {}             # {"top": 0, "bottom": 0, "left": 0, "right": 0}

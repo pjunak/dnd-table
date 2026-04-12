@@ -29,7 +29,7 @@ from files import ensure_default_folders
 from routes import register_routes
 import state
 import settings as settings_store
-from display import apply_all_tv_settings
+from display import apply_all_tv_settings, probe_tv_properties
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
@@ -144,6 +144,19 @@ if __name__ == "__main__":
     )
 
     atexit.register(_cleanup)
+
+    # Probe which xrandr TV properties are available on this hardware
+    state.tv_props_available = probe_tv_properties()
+    logging.info("TV properties available: %s", state.tv_props_available)
+
+    # Detect platform and read boot config
+    try:
+        from boot_config import detect_platform, read_boot_config
+        state.platform_info = detect_platform()
+        state.boot_overscan = read_boot_config()
+        logging.info("Platform: %s", state.platform_info)
+    except Exception as e:
+        logging.warning("Could not detect platform/boot config: %s", e)
 
     # Apply TV display settings if in TV mode
     if state.display_mode == "tv":

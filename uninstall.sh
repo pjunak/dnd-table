@@ -6,11 +6,9 @@ INSTALL_DIR="/opt/dnd-table"
 echo "==> Uninstalling DnD Table..."
 
 echo "==> Stopping service..."
-for SERVICE in dnd-table.service dnd-display-setup.service; do
-    sudo systemctl stop "$SERVICE" 2>/dev/null || true
-    sudo systemctl disable "$SERVICE" 2>/dev/null || true
-    sudo rm -f "/etc/systemd/system/$SERVICE"
-done
+sudo systemctl stop dnd-table.service 2>/dev/null || true
+sudo systemctl disable dnd-table.service 2>/dev/null || true
+sudo rm -f /etc/systemd/system/dnd-table.service
 sudo systemctl daemon-reload
 sudo systemctl reset-failed 2>/dev/null || true
 
