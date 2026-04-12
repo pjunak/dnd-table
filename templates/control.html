@@ -445,6 +445,17 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     </div>
   </div>
 
+  <!-- Update -->
+  <div class="card">
+    <div class="card-title">Software Update</div>
+    <div class="row">
+      <button class="btn btn-sm" id="btn-update-check" onclick="checkUpdate()">Check for Updates</button>
+      <button class="btn btn-sm btn-play" id="btn-update-apply" onclick="applyUpdate()" style="display:none">Update &amp; Restart</button>
+    </div>
+    <div id="update-status" style="font-size:0.8em;color:var(--text-dim);margin-top:8px;display:none"></div>
+    <div id="update-commits" style="margin-top:6px;display:none"></div>
+  </div>
+
   <!-- System -->
   <div class="card">
     <div class="card-title">System</div>
@@ -740,6 +751,70 @@ function applyHwOverscan(){
   api('/boot_config/apply',{}).then(function(d){
     if(d&&d.error){toast('Error: '+d.error);return;}
     toast('Rebooting…');
+  });
+}
+
+function _escHtml(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+/* ─── Software Update ─── */
+var _updateData=null;
+function checkUpdate(){
+  var btn=document.getElementById('btn-update-check');
+  var status=document.getElementById('update-status');
+  var commits=document.getElementById('update-commits');
+  var applyBtn=document.getElementById('btn-update-apply');
+  btn.textContent='Checking…';btn.disabled=true;
+  status.style.display='block';
+  status.textContent='Contacting GitHub…';
+  commits.style.display='none';
+  applyBtn.style.display='none';
+  api('/update/check',{}).then(function(d){
+    btn.textContent='Check for Updates';btn.disabled=false;
+    if(d.error){status.textContent='Error: '+d.error;return;}
+    if(!d.available){
+      status.textContent='Up to date ('+d.current+')';
+      status.style.color='var(--text-dim)';
+      return;
+    }
+    _updateData=d;
+    status.innerHTML='Update available: <b>'+d.current+'</b> → <b>'+d.latest+'</b>';
+    status.style.color='var(--accent)';
+    applyBtn.style.display='';
+    if(d.commits&&d.commits.length){
+      var h='<div style="font-size:0.75em;color:var(--text-dim);max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px">';
+      for(var i=0;i<d.commits.length;i++){
+        var c=d.commits[i];
+        h+='<div style="margin-bottom:3px"><span style="color:var(--accent);font-family:monospace">'+_escHtml(c.hash)+'</span> '+_escHtml(c.subject)+' <span style="opacity:0.5">'+_escHtml(c.date)+'</span></div>';
+      }
+      h+='</div>';
+      commits.innerHTML=h;commits.style.display='block';
+    }
+  }).catch(function(){
+    btn.textContent='Check for Updates';btn.disabled=false;
+    status.textContent='Failed to check for updates';
+  });
+}
+function applyUpdate(){
+  if(!confirm('Update and restart the service?\n\nThe control panel will briefly disconnect while the service restarts.'))return;
+  var btn=document.getElementById('btn-update-apply');
+  var status=document.getElementById('update-status');
+  btn.textContent='Updating…';btn.disabled=true;
+  status.textContent='Pulling code and deploying…';
+  api('/update/apply',{}).then(function(d){
+    if(d.error){
+      status.textContent='Update failed: '+d.error;
+      status.style.color='var(--text)';
+      btn.textContent='Update & Restart';btn.disabled=false;
+      toast('Update failed');
+      return;
+    }
+    status.textContent='Update applied! Service restarting…';
+    status.style.color='var(--accent)';
+    btn.style.display='none';
+    toast('Update applied, restarting…');
+  }).catch(function(){
+    status.textContent='Update request failed';
+    btn.textContent='Update & Restart';btn.disabled=false;
   });
 }
 

@@ -23,6 +23,7 @@ from media import get_file_type, kill_audio, play_audio, set_audio_volume
 from files import detect_usb_drives, get_source_roots, browse_directory
 from display import apply_color_range, apply_underscan, apply_sharpness, apply_all_tv_settings
 from boot_config import read_boot_config, write_overscan_config
+from updater import check_for_update, apply_update
 
 log = logging.getLogger(__name__)
 
@@ -540,6 +541,22 @@ def register_routes(app):
         subprocess.Popen(["sudo", "reboot"])
         return jsonify(ok=True, written={"top": top, "bottom": bottom,
                                          "left": left, "right": right})
+
+    # ─── Software update ─────────────────────────────────────────────
+
+    @app.route("/update/check", methods=["POST"])
+    def update_check():
+        """Check GitHub for available updates."""
+        return jsonify(check_for_update())
+
+    @app.route("/update/apply", methods=["POST"])
+    def update_apply():
+        """Pull latest code, deploy, and restart the service."""
+        result = apply_update()
+        if result.get("ok"):
+            # Restart service to load new code
+            subprocess.Popen(["sudo", "systemctl", "restart", "dnd-table.service"])
+        return jsonify(result)
 
     @app.route("/system", methods=["POST"])
     def system_action():
