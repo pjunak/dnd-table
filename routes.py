@@ -584,21 +584,3 @@ def register_routes(app):
             ips = []
         return jsonify(ips=ips)
 
-    @app.route("/tv_preview", methods=["POST"])
-    def tv_preview():
-        """Temporarily apply neutral (no corrections) or restore saved TV settings.
-
-        Called while the user holds the preview button. Does not save to disk.
-        """
-        data = request.get_json()
-        if data.get("active"):
-            apply_color_range("full")
-            apply_underscan(False)
-            apply_sharpness(False)
-        else:
-            apply_all_tv_settings(
-                state.tv_color_range,
-                state.tv_underscan,
-                state.tv_sharpness,
-            )
-        return jsonify(ok=True)

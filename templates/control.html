@@ -332,13 +332,6 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
         <button class="btn btn-sm" id="tv-sharpness" onclick="toggleTvBool('tv_sharpness')">Off</button>
       </div>
 
-      <div class="row" style="margin-top:10px">
-        <button class="btn btn-sm" id="btn-tv-preview"
-          onmousedown="tvPreview(true)" onmouseup="tvPreview(false)"
-          ontouchstart="tvPreview(true);event.preventDefault()" ontouchend="tvPreview(false)"
-          onmouseleave="tvPreview(false)">Hold to Preview Without Corrections</button>
-      </div>
-
       <div style="border-top:1px solid var(--border);margin:10px 0"></div>
 
       <div class="card-title" style="margin-bottom:8px">Overscan Calibration</div>
@@ -824,15 +817,6 @@ function sysAction(action){
   msg.textContent=labels[action]||'…';
   msg.style.display='block';
   api('/system',{action:action});
-}
-
-var _tvPreviewActive=false;
-function tvPreview(on){
-  if(on===_tvPreviewActive)return;
-  _tvPreviewActive=on;
-  var btn=document.getElementById('btn-tv-preview');
-  btn.classList.toggle('active',on);
-  api('/tv_preview',{active:on});
 }
 
 /* ─── Upload ─── */
