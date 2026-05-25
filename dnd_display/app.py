@@ -8,9 +8,11 @@ cycle.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
+import threading
 import time
 
 # pyglet honours the backend env var only at import time.
@@ -28,6 +30,12 @@ from .layers import (                # noqa: E402
 )
 from .network import get_hostname, get_local_ip   # noqa: E402
 from .themes import THEMES           # noqa: E402
+
+
+# Where the Flask control plane publishes state events.  Always
+# loopback — Flask listens on 0.0.0.0:5000 but the display app
+# lives on the same box.
+_SSE_URL = "http://127.0.0.1:5000/display/stream"
 
 log = logging.getLogger(__name__)
 
@@ -92,10 +100,12 @@ class DndDisplay(pyglet.window.Window):
         # Real video plays via play_file() once the SSE bridge is wired.
         self.video.play_test_pattern("smpte")
 
-        # Theme selection — eventually driven by Flask settings + SSE.
-        # Start on "ancient" so the cracked-stone work is visible from
-        # the moment the splash comes up.  Press T to cycle through all
-        # registered themes; useful when iterating on new ones.
+        # Theme selection — replaced by the SSE init message as soon
+        # as the subscriber connects (~100ms after Flask is up).  This
+        # local default is just what's shown during that brief gap;
+        # "ancient" is intentionally picked so even a fresh box with
+        # no settings.json shows off the cracked-stone work.
+        # Press T to cycle through all registered themes.
         self._theme_names = list(THEMES.keys())
         self._theme_idx = self._theme_names.index("ancient") \
             if "ancient" in self._theme_names else 0
@@ -120,6 +130,21 @@ class DndDisplay(pyglet.window.Window):
         ip = get_local_ip()
         # No-op if unchanged; SplashLayer dedupes.
         self.splash.set_address(hostname, ip)
+
+    # ── State hooks (called on main thread; safe for GL) ─────────
+
+    def set_splash_theme(self, name: str) -> None:
+        """Apply a theme by name and keep the T-cycle index in sync.
+
+        Safe to call from the main thread only.  The SSE subscriber
+        marshals onto the main thread via `pyglet.clock.schedule_once`.
+        """
+        if name not in THEMES:
+            log.warning("Ignoring unknown splash theme: %r", name)
+            return
+        if name in self._theme_names:
+            self._theme_idx = self._theme_names.index(name)
+        self.splash.set_theme(name)
 
     # ── pyglet event hooks ───────────────────────────────────────
 
@@ -159,6 +184,79 @@ class DndDisplay(pyglet.window.Window):
         super().on_close()
 
 
+# ── SSE bridge ───────────────────────────────────────────────────
+
+def _dispatch_event(window: "DndDisplay", data: dict) -> None:
+    """Translate one SSE payload into main-thread UI updates.
+
+    Runs on the subscriber thread; everything that touches GL or
+    pyglet state is bounced onto the main thread via
+    `pyglet.clock.schedule_once`.
+    """
+    evt = data.get("type")
+
+    # Theme can ride along on either the init snapshot or a dedicated
+    # `splash_theme` event — handle both the same way.
+    theme: str | None = None
+    if evt == "init":
+        theme = data.get("splash_theme")
+    elif evt == "splash_theme":
+        theme = data.get("theme")
+    if theme:
+        pyglet.clock.schedule_once(
+            lambda dt, n=theme: window.set_splash_theme(n), 0,
+        )
+
+    # Future: grid / overscan / play / stop dispatched here too.
+
+
+def _start_sse_subscriber(window: "DndDisplay") -> None:
+    """Start a daemon thread that subscribes to Flask's SSE stream.
+
+    Theme changes flow through this; grid / video / overscan will be
+    added once their consumer code exists.  Connection failures are
+    retried with exponential backoff capped at 15 s so a Flask
+    restart (e.g., after `Update & Restart` from the control panel)
+    recovers automatically.
+    """
+    try:
+        import requests
+        import sseclient
+    except ImportError:
+        log.warning("requests/sseclient-py unavailable — SSE bridge disabled "
+                    "(theme changes will only apply after restart)")
+        return
+
+    def _run() -> None:
+        backoff = 1.0
+        while True:
+            try:
+                # First number is connect timeout; None for read so SSE
+                # heartbeats don't trip a timeout between events.
+                resp = requests.get(_SSE_URL, stream=True, timeout=(5, None))
+                if resp.status_code != 200:
+                    raise RuntimeError(f"HTTP {resp.status_code}")
+                log.info("SSE connected to %s", _SSE_URL)
+                backoff = 1.0
+                client = sseclient.SSEClient(resp)
+                for ev in client.events():
+                    if not ev.data:
+                        continue
+                    try:
+                        _dispatch_event(window, json.loads(ev.data))
+                    except json.JSONDecodeError as e:
+                        log.warning("Malformed SSE payload (%s): %r", e, ev.data[:80])
+                    except Exception:
+                        log.exception("Error dispatching SSE event")
+            except Exception as e:
+                log.warning("SSE disconnected (%s) — retrying in %.1fs", e, backoff)
+                time.sleep(backoff)
+                backoff = min(backoff * 1.7, 15.0)
+
+    t = threading.Thread(target=_run, name="sse-subscriber", daemon=True)
+    t.start()
+
+
 # ── Entry point ──────────────────────────────────────────────────
 
 def main() -> int:
@@ -170,7 +268,11 @@ def main() -> int:
     log.info("dnd_display starting (pyglet %s, moderngl %s)",
              pyglet.version, moderngl.__version__)
     try:
-        DndDisplay()
+        window = DndDisplay()
+        # Subscribe to Flask's SSE stream so the control panel can
+        # drive UI state (theme, grid, video) live.  The subscriber
+        # is daemonised so process exit doesn't hang on it.
+        _start_sse_subscriber(window)
         # pyglet 2.x defaults to event-driven rendering (only redraws on
         # invalidation, to save power). For continuous video + animation
         # we want a fixed-rate loop; vsync still caps the actual rate to

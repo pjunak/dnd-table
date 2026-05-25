@@ -74,6 +74,10 @@ if __name__ == "__main__":
         state.sfx_volume = saved["volumes"].get("sfx", 80)
     if saved.get("display"):
         state.display_mode_pref = saved["display"].get("mode") or None
+    if saved.get("splash"):
+        theme_name = saved["splash"].get("theme")
+        if theme_name:
+            state.splash_theme = theme_name
 
     logging.basicConfig(
         level=logging.INFO,

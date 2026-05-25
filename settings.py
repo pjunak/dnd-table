@@ -43,6 +43,9 @@ _DEFAULTS = {
     "display": {
         "mode": None,   # None = use compositor / EDID default
     },
+    "splash": {
+        "theme": "arcane",   # name from dnd_display.themes.THEMES
+    },
 }
 
 

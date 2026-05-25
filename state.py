@@ -53,3 +53,10 @@ sfx_volume = 80
 # Mode string like "1920x1080@60", or None to use the compositor default
 # (whatever the TV's EDID reports as preferred).
 display_mode_pref: str | None = None
+
+# ─── Splash screen theme ─────────────────────────────────────────
+# Name from dnd_display.themes.THEMES — controls the look of the
+# rotating D20 splash (face material, rune effect, backdrop).
+# The native display app reads this via the SSE bridge and on its
+# own startup (restored from settings.json by main.py).
+splash_theme: str = "arcane"

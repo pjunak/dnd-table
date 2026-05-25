@@ -65,8 +65,21 @@ def _persist():
         "display": {
             "mode": state.display_mode_pref,
         },
+        "splash": {
+            "theme": state.splash_theme,
+        },
     }
     settings_store.save(data)
+
+
+def _rgb_to_hex(t):
+    """Convert (r, g, b) floats in 0..1 to CSS hex string."""
+    r, g, b = t
+    return "#{:02x}{:02x}{:02x}".format(
+        max(0, min(255, int(round(r * 255)))),
+        max(0, min(255, int(round(g * 255)))),
+        max(0, min(255, int(round(b * 255)))),
+    )
 
 
 # ─── Display helpers ─────────────────────────────────────────────
@@ -149,6 +162,7 @@ def register_routes(app):
                 "file": state.current_file,
                 "file_path": state.current_file_path,
                 "file_type": get_file_type(state.current_file) if state.current_file else None,
+                "splash_theme": state.splash_theme,
             })
             yield f"data: {init}\n\n"
             try:
@@ -210,6 +224,7 @@ def register_routes(app):
             },
             file_info=state.current_file_info,
             overscan=state.overscan_state,
+            splash_theme=state.splash_theme,
         )
 
     @app.route("/sources")
@@ -505,6 +520,48 @@ def register_routes(app):
         # while cage's framebuffer is at the new resolution.
         subprocess.Popen(["sudo", "systemctl", "restart", "greetd.service"])
         return jsonify(ok=True, mode=mode)
+
+    # ─── Splash theme ────────────────────────────────────────────
+
+    @app.route("/api/splash/themes", methods=["GET"])
+    def api_splash_themes():
+        """List all registered splash themes with preview colours.
+
+        Lazy-imports `dnd_display.themes` so Flask doesn't pay the cost
+        of the broader display package at startup (it has no GL deps,
+        but keeping the boundary explicit makes the dependency obvious).
+        """
+        from dnd_display.themes import THEMES
+        out = []
+        for name, th in THEMES.items():
+            out.append({
+                "name": th.name,
+                "description": th.description,
+                "preview": {
+                    "face_color":     _rgb_to_hex(th.face_color),
+                    "face_color2":    _rgb_to_hex(th.face_color2),
+                    "rune_color":     _rgb_to_hex(th.rune_color),
+                    "rune_color2":    _rgb_to_hex(th.rune_color2),
+                    "rim_color":      _rgb_to_hex(th.rim_color),
+                    "backdrop_inner": _rgb_to_hex(th.backdrop_inner),
+                    "backdrop_outer": _rgb_to_hex(th.backdrop_outer),
+                },
+            })
+        return jsonify(themes=out, current=state.splash_theme)
+
+    @app.route("/api/splash/theme", methods=["POST"])
+    def api_splash_theme_set():
+        """Switch the active splash theme.  Persisted to settings.json
+        and broadcast over SSE so the native display app updates live."""
+        from dnd_display.themes import THEMES
+        data = request.get_json() or {}
+        name = data.get("theme", "")
+        if name not in THEMES:
+            return jsonify(ok=False, error=f"unknown theme: {name}"), 400
+        state.splash_theme = name
+        broadcast("splash_theme", {"theme": name})
+        _persist()
+        return jsonify(ok=True, theme=name)
 
     @app.route("/api/ips")
     def api_ips():
