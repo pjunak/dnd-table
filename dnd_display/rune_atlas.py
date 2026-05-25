@@ -20,14 +20,18 @@ from .mesh import RUNE_CENTROID_X, RUNE_CENTROID_Y
 log = logging.getLogger(__name__)
 
 
-# Elder Futhark (24 runes; we use the first 20, one per icosahedron face).
+# Elder Futhark (24 runes; we use 20, one per icosahedron face).
+# Kenaz (ᚲ) is intentionally skipped — in most fonts it renders as a
+# bare `<` wedge, which on a die face reads as the caron diacritic
+# (ˇ) rather than a rune.  Dagaz (ᛞ) takes its slot: it's unambiguous
+# as a rune at any size.
 ELDER_FUTHARK = [
     "ᚠ",  # ᚠ Fehu
     "ᚢ",  # ᚢ Uruz
     "ᚦ",  # ᚦ Thurisaz
     "ᚨ",  # ᚨ Ansuz
     "ᚱ",  # ᚱ Raidho
-    "ᚲ",  # ᚲ Kenaz
+    "ᛞ",  # ᛞ Dagaz — replaces Kenaz (which read as ˇ)
     "ᚷ",  # ᚷ Gebo
     "ᚹ",  # ᚹ Wunjo
     "ᚺ",  # ᚺ Hagalaz

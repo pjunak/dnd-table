@@ -27,6 +27,7 @@ from .layers import (                # noqa: E402
     VideoLayer,
 )
 from .network import get_hostname, get_local_ip   # noqa: E402
+from .themes import THEMES           # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -92,9 +93,13 @@ class DndDisplay(pyglet.window.Window):
         self.video.play_test_pattern("smpte")
 
         # Theme selection — eventually driven by Flask settings + SSE.
-        # Try "flame" first to see the procedural fire effect; switch back
-        # to "arcane" (default purple+gold) by changing this string.
-        self.splash.set_theme("flame")
+        # Start on "ancient" so the cracked-stone work is visible from
+        # the moment the splash comes up.  Press T to cycle through all
+        # registered themes; useful when iterating on new ones.
+        self._theme_names = list(THEMES.keys())
+        self._theme_idx = self._theme_names.index("ancient") \
+            if "ancient" in self._theme_names else 0
+        self.splash.set_theme(self._theme_names[self._theme_idx])
 
         # Show the splash on launch so we can see it; SSE will own this
         # decision once the bridge is wired.
@@ -122,6 +127,10 @@ class DndDisplay(pyglet.window.Window):
         if symbol in (pyglet.window.key.ESCAPE, pyglet.window.key.Q):
             log.info("Exit requested via keyboard")
             self.close()
+        elif symbol == pyglet.window.key.T:
+            # Cycle splash themes — quick preview without restarting.
+            self._theme_idx = (self._theme_idx + 1) % len(self._theme_names)
+            self.splash.set_theme(self._theme_names[self._theme_idx])
 
     def on_resize(self, width, height):
         super().on_resize(width, height)

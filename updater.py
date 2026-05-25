@@ -22,8 +22,11 @@ REMOTE = "origin"
 BRANCH = "main"
 REPO_URL = "https://github.com/pjunak/dnd-table"
 
+# Must match install.sh — otherwise `rsync --delete` will wipe the venv,
+# user PNGs, and on-disk settings every time the updater runs.
 _RSYNC_EXCLUDES = (
     ".git", "__pycache__", ".vscode", ".claude", ".gitignore",
+    ".venv", "*.png", "settings.json",
 )
 
 
@@ -125,6 +128,54 @@ def check_for_update():
     }
 
 
+def _ensure_venv():
+    """Recreate the install-dir venv if missing and refresh requirements.
+
+    Mirrors steps 6 of install.sh.  The Flask service runs as the
+    ``dndtable`` user, which owns /opt/dnd-table, so no sudo is needed
+    here to write into the install directory.
+
+    Returns (ok: bool, err: str).  Errors aren't fatal callers (it's
+    the caller's job to decide), but a False return means the next
+    service restart will fail because kiosk.sh / dnd-table.service
+    both expect /opt/dnd-table/.venv/bin/python.
+    """
+    venv_dir = os.path.join(INSTALL_DIR, ".venv")
+    venv_python = os.path.join(venv_dir, "bin", "python")
+
+    if not os.path.isfile(venv_python):
+        log.info("Recreating venv at %s", venv_dir)
+        try:
+            r = subprocess.run(
+                ["python3", "-m", "venv", venv_dir, "--system-site-packages"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if r.returncode != 0:
+                return False, "venv create failed: " + r.stderr.strip()
+        except Exception as e:
+            return False, f"venv create error: {e}"
+        # Upgrade pip inside the fresh venv (best effort)
+        subprocess.run(
+            [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
+            capture_output=True, timeout=120,
+        )
+
+    req = os.path.join(INSTALL_DIR, "requirements.txt")
+    if os.path.isfile(req):
+        log.info("Installing requirements from %s", req)
+        try:
+            r = subprocess.run(
+                [venv_python, "-m", "pip", "install", "-r", req],
+                capture_output=True, text=True, timeout=300,
+            )
+            if r.returncode != 0:
+                return False, "pip install failed: " + r.stderr.strip()
+        except Exception as e:
+            return False, f"pip install error: {e}"
+
+    return True, ""
+
+
 def apply_update():
     """Pull the latest code and deploy to the install directory.
 
@@ -170,6 +221,13 @@ def apply_update():
         ["sudo", "chmod", "+x", f"{INSTALL_DIR}/kiosk.sh"],
         capture_output=True, timeout=5,
     )
+
+    # Ensure the venv exists and requirements are up to date.  Without
+    # this the kiosk falls through to the chromium GPU-probe fallback
+    # because /opt/dnd-table/.venv/bin/python is missing or stale.
+    ok, err = _ensure_venv()
+    if not ok:
+        return {"ok": False, "error": err}
 
     # Reload service file in case it changed
     subprocess.run(

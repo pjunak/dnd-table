@@ -28,7 +28,8 @@ from ..mesh import build_icosahedron_buffer
 from ..rune_atlas import build_rune_atlas, RUNE_ATLAS_COLS, RUNE_ATLAS_ROWS
 from ..themes import (
     SplashTheme, THEMES, DEFAULT_THEME,
-    RUNE_EFFECT_FLAMING, RUNE_EFFECT_SOLID,
+    RUNE_EFFECT_FLAMING, RUNE_EFFECT_LIGHTNING, RUNE_EFFECT_SOLID,
+    FACE_EFFECT_CRACKED_STONE, FACE_EFFECT_MOSSY_STONE, FACE_EFFECT_SMOOTH,
     get as get_theme,
 )
 
@@ -128,12 +129,14 @@ out vec4 f_color;
 
 uniform sampler2D u_runes;
 uniform int       u_have_runes;
-uniform int       u_rune_effect;     // 0 = solid, 1 = flaming
+uniform int       u_rune_effect;     // 0 = solid, 1 = flaming, 2 = lightning
+uniform int       u_face_effect;     // 0 = smooth, 1 = cracked stone, 2 = mossy stone
 uniform float     u_time;
 uniform vec3      u_light_dir;
 uniform float     u_ambient;
 uniform vec3      u_camera_pos;
 uniform vec3      u_face_color;
+uniform vec3      u_face_color2;      // cracks / moss accent
 uniform vec3      u_rune_color;
 uniform vec3      u_rune_color2;
 uniform vec3      u_rim_color;
@@ -170,6 +173,29 @@ float fbm(vec2 p) {
     return v;
 }
 
+// ── Worley F2-F1: classic cellular "crack" pattern ───────────────
+// Returns small values along the cell boundaries (where two jittered
+// centres are equidistant), large values inside the cells.  We
+// threshold that into a dark vein mask for the cracked-stone face.
+float worley_cracks(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float d1 = 1.0e9;
+    float d2 = 1.0e9;
+    for (int yy = -1; yy <= 1; yy++) {
+        for (int xx = -1; xx <= 1; xx++) {
+            vec2 g = vec2(float(xx), float(yy));
+            vec2 jitter = vec2(hash21(i + g),
+                               hash21(i + g + vec2(13.0, 7.0)));
+            vec2 dv = g + jitter - f;
+            float dd = dot(dv, dv);
+            if (dd < d1) { d2 = d1; d1 = dd; }
+            else if (dd < d2) { d2 = dd; }
+        }
+    }
+    return sqrt(d2) - sqrt(d1);
+}
+
 // ── Fire palette: black → ember → base → hot → peak white ────────
 // Uses u_rune_color as the "base orange" and u_rune_color2 as the
 // "hot yellow"; peaks to a near-white for the brightest flickers.
@@ -196,8 +222,47 @@ void main() {
     float spec = pow(max(dot(N, H), 0.0), u_spec_power);
     float rim  = pow(1.0 - max(dot(N, V), 0.0), 3.5);
 
-    vec3 face = u_face_color * light
-              + u_spec_color * spec * 0.55
+    // Per-face local UV (0..1 inside one atlas tile) — shared by face
+    // and rune procedural effects so they line up with the triangle.
+    vec2 face_uv = fract(v_uv * u_atlas_dims);
+
+    // ── Face surface ────────────────────────────────────────────
+    vec3 base_face = u_face_color;
+    float spec_attn = 1.0;   // matte surfaces dim their own highlight
+
+    if (u_face_effect == 1 || u_face_effect == 2) {
+        // Stone tonal mottling — broad fBm warms / cools the base.
+        float mottle = fbm(face_uv * 3.2);
+        vec3 stone = u_face_color * (0.72 + 0.55 * mottle);
+
+        // Primary cracks (chunky veins).
+        float crack = worley_cracks(face_uv * 5.5);
+        float crack_mask = smoothstep(0.10, 0.00, crack);
+        // Secondary hairline crackle for surface detail.
+        float fine = worley_cracks(face_uv * 13.0 + 3.7);
+        crack_mask = max(crack_mask, smoothstep(0.05, 0.0, fine) * 0.45);
+        base_face = mix(stone, u_face_color2, crack_mask);
+
+        // Cracks aren't shiny.
+        spec_attn = 0.35;
+
+        if (u_face_effect == 2) {
+            // Moss / lichen — soft green patches in the "valleys" of
+            // another fBm field, modulated by fine noise so the edge
+            // looks ragged rather than airbrushed.
+            float moss = fbm(face_uv * 2.0 + vec2(5.3, 9.1));
+            float moss_mask = smoothstep(0.50, 0.72, moss);
+            moss_mask *= 0.55 + 0.45 * fbm(face_uv * 8.5);
+            // Vary moss tint slightly per-face for richness.
+            vec3 moss_color = u_face_color2 * (0.78 + 0.45 * mottle);
+            base_face = mix(base_face, moss_color, clamp(moss_mask, 0.0, 0.92));
+            // Moss is matte too.
+            spec_attn = 0.20;
+        }
+    }
+
+    vec3 face = base_face * light
+              + u_spec_color * spec * 0.55 * spec_attn
               + u_rim_color  * rim  * u_rim_strength;
 
     vec3 final_rgb = face;
@@ -208,14 +273,12 @@ void main() {
         vec3 rune_visual;
         if (u_rune_effect == 1) {
             // ── Flaming: animated procedural fire inside the rune mask ─
-            // Convert atlas UV → per-face local UV (0..1 within tile).
-            vec2 local_uv = fract(v_uv * u_atlas_dims);
             // Two noise octaves at very different frequencies — the low
             // one drives broad hot/cool patches, the high one adds the
             // crackling flicker. Both drift downward so the fire rises.
-            vec2 q1 = local_uv * vec2(6.0, 10.0);
+            vec2 q1 = face_uv * vec2(6.0, 10.0);
             q1.y -= u_time * 1.8;
-            vec2 q2 = local_uv * vec2(14.0, 22.0) + vec2(7.3, 2.1);
+            vec2 q2 = face_uv * vec2(14.0, 22.0) + vec2(7.3, 2.1);
             q2.y -= u_time * 3.1;
             float n = fbm(q1) * 0.65 + fbm(q2) * 0.35;
             // Keep most of the rune in the "base → hot" band; allow
@@ -225,6 +288,28 @@ void main() {
             // Faintly couple to face lighting so the rune still tracks
             // orientation, but mostly self-illuminated.
             rune_visual *= 0.92 + 0.18 * light;
+        } else if (u_rune_effect == 2) {
+            // ── Lightning: steady electric hum + occasional sharp flashes ─
+            // Per-face seed so faces flash independently rather than
+            // strobing in unison (that would be migraine-inducing).
+            float fcol = floor(v_uv.x * u_atlas_dims.x);
+            float frow = floor(v_uv.y * u_atlas_dims.y);
+            float seed = fcol * 5.31 + frow * 11.7;
+            // Gentle baseline shimmer.
+            float hum = 0.50 + 0.18 * sin(u_time * 3.0 + seed);
+            // Every ~0.25s each face rolls a die for a flash; ~20% hit.
+            float bucket = floor(u_time * 4.0 + seed * 3.1);
+            float roll = hash21(vec2(seed, bucket));
+            float strobe = smoothstep(0.80, 0.99, roll);
+            // Decay tail within the bucket so the flash feels electric.
+            float tail = 1.0 - fract(u_time * 4.0 + seed * 3.1);
+            tail = tail * tail;
+            float intensity = max(hum, strobe * (0.65 + 0.55 * tail));
+            // Blue glow at idle, near-white at peak.
+            vec3 base_glow = mix(u_rune_color * 0.85, u_rune_color2,
+                                 smoothstep(0.55, 1.20, intensity));
+            rune_visual = base_glow * intensity;
+            rune_visual *= 0.90 + 0.15 * light;
         } else {
             // ── Solid: classic lit rune
             rune_visual = u_rune_color * (0.60 + 0.55 * light)
@@ -426,6 +511,8 @@ class SplashLayer(Layer):
         p["u_light_dir"].value = th.light_dir
         p["u_ambient"].value = th.ambient
         p["u_face_color"].value = th.face_color
+        p["u_face_color2"].value = th.face_color2
+        p["u_face_effect"].value = th.face_effect
         p["u_rune_color"].value = th.rune_color
         p["u_rune_color2"].value = th.rune_color2
         p["u_rim_color"].value = th.rim_color
