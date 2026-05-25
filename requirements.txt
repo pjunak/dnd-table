@@ -1,0 +1,7 @@
+# Python deps that aren't packaged in Debian 13 — installed into
+# /opt/dnd-table/.venv by install.sh (which creates the venv with
+# --system-site-packages so python3-gi / GStreamer are still visible).
+
+moderngl>=5.10,<6
+pyglet>=2.0,<3
+sseclient-py>=1.8,<2

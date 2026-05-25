@@ -2,7 +2,6 @@
 DnD Table – Configuration constants.
 """
 
-import os
 from pathlib import Path
 
 # ─── Media directories ───────────────────────────────────────────
@@ -22,8 +21,10 @@ ALLOWED_EXTENSIONS = {
 # ─── Folder structure ────────────────────────────────────────────
 PROTECTED_FOLDERS = ["Maps", "Videos", "Ambient", "SFX"]
 
-# ─── X11 display ─────────────────────────────────────────────────
-DISPLAY = os.environ.get("DISPLAY", ":0")
-
 # ─── MPV IPC socket (ambient audio) ──────────────────────────────
 MPV_AUDIO_SOCKET = "/tmp/mpv_audio.sock"
+
+# ─── Native display app IPC ──────────────────────────────────────
+# The Flask server emits state via SSE on /display/stream; the native
+# `dnd_display` app subscribes there. No X11/Wayland socket constants
+# needed here — the display app owns its own compositor connection.

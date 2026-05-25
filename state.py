@@ -2,18 +2,22 @@
 DnD Table – Shared mutable state.
 
 All state lives here so every module can import it without circular deps.
+This module is the source of truth for the Flask control plane; the native
+display app (`dnd_display`) subscribes to changes via the SSE bridge in
+routes.py.
 """
 
 # ─── Audio process (MPV subprocess for ambient) ──────────────────
 audio_process = None
 current_audio = None
 
-# ─── Display state (what the browser display page is showing) ────
+# ─── Display state (what the native display app is showing) ──────
 current_file = None       # filename only, for control panel display
-current_file_path = None  # absolute path, for building media URL
+current_file_path = None  # absolute path, native display loads from here
 current_file_info = None  # dict with size, type, duration
 
 # ─── Grid overlay state ─────────────────────────────────────────
+# The native display app consumes this verbatim to render its grid layer.
 grid_state = {
     "enabled": False,
     "type": "square",
@@ -27,7 +31,11 @@ grid_state = {
     "calibration_mode": False,
 }
 
-# ─── Overscan calibration ──────────────────────────────────────────
+# ─── Safe-area inset (pixels cropped from each edge of the render) ──
+# Used to be "overscan" on the RPi (compensating for TV overscan). On the
+# x86 + Wayland stack the TV handles its own scaling, so this is now a
+# generic letterbox/safe-area for content placement. Data shape preserved
+# to keep the control panel UI compatible during the migration.
 overscan_state = {
     "top": 0,
     "bottom": 0,
@@ -41,15 +49,7 @@ video_volume = 80
 audio_volume = 80
 sfx_volume = 80
 
-# ─── Display mode & TV settings ─────────────────────────────────
-display_mode = "display"       # "display" or "tv"
-tv_color_range = "full"        # "full" or "limited"
-tv_underscan = False           # enable underscan via xrandr
-tv_sharpness = False           # disable GPU scaling (dot-by-dot)
-
-# ─── TV property availability (probed at startup) ──────────────
-tv_props_available = {"color_range": False, "underscan": False, "sharpness": False}
-
-# ─── Platform info (detected at startup) ───────────────────────
-platform_info = {}             # {"is_rpi": bool, "model": str|None}
-boot_overscan = {}             # {"top": 0, "bottom": 0, "left": 0, "right": 0}
+# ─── Display output preference ───────────────────────────────────
+# Mode string like "1920x1080@60", or None to use the compositor default
+# (whatever the TV's EDID reports as preferred).
+display_mode_pref: str | None = None

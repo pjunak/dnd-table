@@ -1,20 +1,23 @@
 [Unit]
-Description=DnD Table Display Server
-After=graphical.target lightdm.service
-Wants=graphical.target
+Description=DnD Table Flask control plane (REST + SSE)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=dnd
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/dnd/.Xauthority
+User=dndtable
 WorkingDirectory=/opt/dnd-table
-ExecStartPre=/bin/bash /opt/dnd-table/setup-display.sh
+
+# Redirect external port 80 → Flask 5000 (so phones can hit http://dndtable.local)
+# Re-applied on every start so the rules survive iptables flush/reboot.
 ExecStartPre=+/bin/bash -c '/usr/sbin/iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 5000 2>/dev/null || /usr/sbin/iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 5000'
 ExecStartPre=+/bin/bash -c '/usr/sbin/iptables -t nat -C OUTPUT -p tcp -d 127.0.0.1 --dport 80 -j REDIRECT --to-port 5000 2>/dev/null || /usr/sbin/iptables -t nat -A OUTPUT -p tcp -d 127.0.0.1 --dport 80 -j REDIRECT --to-port 5000'
-ExecStart=/usr/bin/python3 /opt/dnd-table/main.py
+
+# Use the venv Python so any pip-installed deps are available too
+ExecStart=/opt/dnd-table/.venv/bin/python /opt/dnd-table/main.py
+
 Restart=on-failure
 RestartSec=10
 
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target

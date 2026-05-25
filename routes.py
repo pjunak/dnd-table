@@ -1,8 +1,13 @@
 """
-DnD Table – Flask routes + SSE bridge to Chromium display page.
+DnD Table – Flask routes + SSE bridge.
 
-Control panel (phone/tablet) communicates via REST.
-Display page (Chromium kiosk) receives events via Server-Sent Events.
+Control plane only. Renders the phone/tablet control panel and exposes a
+Server-Sent Events stream that the native `dnd_display` Wayland app
+subscribes to. The display app receives state changes (current_file,
+grid, overscan/safe-area, volume) and renders the actual scene.
+
+This module is intentionally free of display-side rendering concerns —
+no template for the kiosk page, no X11/xrandr, no RPi config.txt.
 """
 
 import json
@@ -21,21 +26,20 @@ import settings as settings_store
 from config import MEDIA_DIRS, UPLOAD_DIR, PROTECTED_FOLDERS
 from media import get_file_type, kill_audio, play_audio, set_audio_volume
 from files import detect_usb_drives, get_source_roots, browse_directory
-from display import apply_color_range, apply_underscan, apply_sharpness, apply_all_tv_settings
-from boot_config import read_boot_config, write_overscan_config
 from updater import check_for_update, apply_update
+import display_modes
 
 log = logging.getLogger(__name__)
 
 
-# ─── SSE pub-sub for display page ────────────────────────────────
+# ─── SSE pub-sub for the native display app ──────────────────────
 
 _display_clients = []
 _clients_lock = threading.Lock()
 
 
 def broadcast(event_type, data=None):
-    """Push an event to all connected display pages via SSE."""
+    """Push an event to all connected display clients via SSE."""
     msg = json.dumps({"type": event_type, **(data or {})})
     with _clients_lock:
         dead = []
@@ -51,16 +55,15 @@ def broadcast(event_type, data=None):
 def _persist():
     """Save current persistent state to disk."""
     data = {
-        "display_mode": state.display_mode,
-        "tv_color_range": state.tv_color_range,
-        "tv_underscan": state.tv_underscan,
-        "tv_sharpness": state.tv_sharpness,
         "grid": {k: v for k, v in state.grid_state.items() if k != "calibration_mode"},
         "overscan": {k: v for k, v in state.overscan_state.items() if k != "calibration"},
         "volumes": {
             "map": state.video_volume,
             "ambient": state.audio_volume,
             "sfx": state.sfx_volume,
+        },
+        "display": {
+            "mode": state.display_mode_pref,
         },
     }
     settings_store.save(data)
@@ -69,7 +72,7 @@ def _persist():
 # ─── Display helpers ─────────────────────────────────────────────
 
 def _play_on_display(filepath):
-    """Set state and broadcast play event to the display page."""
+    """Set state and broadcast play event to the display app."""
     filepath = Path(filepath)
     file_type = get_file_type(filepath.name)
     state.current_file = filepath.name
@@ -108,6 +111,7 @@ def _play_on_display(filepath):
     media_url = "/serve_media?path=" + quote(str(filepath), safe="")
     broadcast("play", {
         "url": media_url,
+        "path": str(filepath),
         "file_type": file_type,
         "filename": filepath.name,
     })
@@ -126,21 +130,17 @@ def _stop_display():
 def register_routes(app):
     """Attach all routes to *app*."""
 
-    # ─── Display page + SSE stream ───────────────────────────────
-
-    @app.route("/display")
-    def display():
-        return render_template("display.html")
+    # ─── SSE stream consumed by the native display app ───────────
 
     @app.route("/display/stream")
     def display_stream():
-        """SSE endpoint — display page connects here for real-time events."""
+        """SSE endpoint — the native display app connects here on launch."""
         q = queue.Queue(maxsize=50)
         with _clients_lock:
             _display_clients.append(q)
 
         def generate():
-            # Send current state on connect so display can sync immediately
+            # Send current state on connect so the display can sync immediately
             init = json.dumps({
                 "type": "init",
                 "grid": state.grid_state,
@@ -173,12 +173,12 @@ def register_routes(app):
 
     @app.route("/serve_media")
     def serve_media():
-        """Serve media files to the display page (supports Range requests)."""
+        """Serve media files (with Range support) to the native display app
+        and the control panel preview thumbnails."""
         filepath = request.args.get("path", "")
         p = Path(filepath)
         if not p.exists() or not p.is_file():
             return "Not found", 404
-        # Security: only serve from allowed media directories
         allowed = False
         for d in MEDIA_DIRS.values():
             try:
@@ -210,13 +210,6 @@ def register_routes(app):
             },
             file_info=state.current_file_info,
             overscan=state.overscan_state,
-            display_mode=state.display_mode,
-            tv_color_range=state.tv_color_range,
-            tv_underscan=state.tv_underscan,
-            tv_sharpness=state.tv_sharpness,
-            tv_props_available=state.tv_props_available,
-            platform_info=state.platform_info,
-            boot_overscan=state.boot_overscan,
         )
 
     @app.route("/sources")
@@ -427,7 +420,7 @@ def register_routes(app):
         _persist()
         return jsonify(status="ok", target=target, level=level)
 
-    # ─── Grid overlay ────────────────────────────────────────────
+    # ─── Safe-area / letterbox inset ─────────────────────────────
 
     @app.route("/overscan", methods=["POST"])
     def overscan():
@@ -439,6 +432,8 @@ def register_routes(app):
         if not state.overscan_state.get("calibration"):
             _persist()
         return jsonify(overscan=state.overscan_state)
+
+    # ─── Grid overlay ────────────────────────────────────────────
 
     @app.route("/grid", methods=["POST"])
     def grid():
@@ -454,94 +449,6 @@ def register_routes(app):
             _persist()
         return jsonify(grid=state.grid_state)
 
-    # ─── Display mode & TV settings ───────────────────────────────
-
-    @app.route("/display_mode", methods=["GET"])
-    def display_mode_get():
-        return jsonify(
-            display_mode=state.display_mode,
-            tv_color_range=state.tv_color_range,
-            tv_underscan=state.tv_underscan,
-            tv_sharpness=state.tv_sharpness,
-            tv_props_available=state.tv_props_available,
-            platform_info=state.platform_info,
-            boot_overscan=state.boot_overscan,
-        )
-
-    @app.route("/display_mode", methods=["POST"])
-    def display_mode_set():
-        data = request.get_json()
-        mode = data.get("display_mode")
-        if mode and mode in ("display", "tv"):
-            state.display_mode = mode
-
-        if "tv_color_range" in data and data["tv_color_range"] in ("full", "limited"):
-            state.tv_color_range = data["tv_color_range"]
-            if state.display_mode == "tv":
-                apply_color_range(state.tv_color_range)
-
-        if "tv_underscan" in data:
-            state.tv_underscan = bool(data["tv_underscan"])
-            if state.display_mode == "tv":
-                apply_underscan(state.tv_underscan)
-
-        if "tv_sharpness" in data:
-            state.tv_sharpness = bool(data["tv_sharpness"])
-            if state.display_mode == "tv":
-                apply_sharpness(state.tv_sharpness)
-
-        # When switching to display mode, reset TV tweaks to neutral
-        if mode == "display":
-            apply_color_range("full")
-            apply_underscan(False)
-            apply_sharpness(False)
-
-        _persist()
-        broadcast("display_mode", {"display_mode": state.display_mode})
-        return jsonify(
-            display_mode=state.display_mode,
-            tv_color_range=state.tv_color_range,
-            tv_underscan=state.tv_underscan,
-            tv_sharpness=state.tv_sharpness,
-            tv_props_available=state.tv_props_available,
-            platform_info=state.platform_info,
-            boot_overscan=state.boot_overscan,
-        )
-
-    # ─── Hardware overscan (config.txt) ────────────────────────────
-
-    @app.route("/boot_config", methods=["GET"])
-    def boot_config_get():
-        state.boot_overscan = read_boot_config()
-        return jsonify(
-            platform_info=state.platform_info,
-            boot_overscan=state.boot_overscan,
-        )
-
-    @app.route("/boot_config/apply", methods=["POST"])
-    def boot_config_apply():
-        """Write current CSS overscan values to config.txt, reset CSS
-        overscan to 0, and reboot so the hardware applies them."""
-        os_state = state.overscan_state
-        top = os_state.get("top", 0)
-        bottom = os_state.get("bottom", 0)
-        left = os_state.get("left", 0)
-        right = os_state.get("right", 0)
-
-        ok = write_overscan_config(top, bottom, left, right)
-        if not ok:
-            return jsonify(error="Failed to write config.txt"), 500
-
-        # Reset CSS overscan since hardware will handle it
-        state.overscan_state.update({"top": 0, "bottom": 0, "left": 0, "right": 0,
-                                     "calibration": False})
-        _persist()
-
-        # Reboot to apply
-        subprocess.Popen(["sudo", "reboot"])
-        return jsonify(ok=True, written={"top": top, "bottom": bottom,
-                                         "left": left, "right": right})
-
     # ─── Software update ─────────────────────────────────────────────
 
     @app.route("/update/check", methods=["POST"])
@@ -554,7 +461,6 @@ def register_routes(app):
         """Pull latest code, deploy, and restart the service."""
         result = apply_update()
         if result.get("ok"):
-            # Restart service to load new code
             subprocess.Popen(["sudo", "systemctl", "restart", "dnd-table.service"])
         return jsonify(result)
 
@@ -572,6 +478,34 @@ def register_routes(app):
             return jsonify(error="unknown action"), 400
         return jsonify(ok=True)
 
+    # ─── Display output (resolution) ─────────────────────────────
+
+    @app.route("/api/display/modes", methods=["GET"])
+    def display_modes_list():
+        """Return available output modes and the currently-active one."""
+        data = display_modes.get_state()
+        data["preferred"] = state.display_mode_pref
+        return jsonify(data)
+
+    @app.route("/api/display/mode", methods=["POST"])
+    def display_mode_set():
+        """Set the output mode, persist it, and restart greetd so the
+        native app re-creates its window at the new size."""
+        data = request.get_json() or {}
+        mode = data.get("mode", "")
+        if not mode:
+            return jsonify(error="mode required"), 400
+        ok, err = display_modes.set_mode(mode)
+        if not ok:
+            return jsonify(ok=False, error=err), 400
+        state.display_mode_pref = mode
+        _persist()
+        # Bounce greetd so pyglet re-creates its window at the new size.
+        # Without this, the existing window stays at the old dimensions
+        # while cage's framebuffer is at the new resolution.
+        subprocess.Popen(["sudo", "systemctl", "restart", "greetd.service"])
+        return jsonify(ok=True, mode=mode)
+
     @app.route("/api/ips")
     def api_ips():
         """Return current IPv4 addresses of this machine."""
@@ -583,4 +517,3 @@ def register_routes(app):
         except Exception:
             ips = []
         return jsonify(ips=ips)
-

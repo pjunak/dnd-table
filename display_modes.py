@@ -1,0 +1,117 @@
+"""
+Display mode helpers — list + set the Wayland output mode via wlr-randr.
+
+Flask runs as the `dndtable` user, the same user that owns the cage
+Wayland session, so we can connect to the kiosk's compositor by setting
+XDG_RUNTIME_DIR and WAYLAND_DISPLAY explicitly (systemd's User= unit
+doesn't propagate the user's graphical-session env).
+
+Mode strings are normalised to ``WIDTHxHEIGHT@HZ`` (e.g. ``1920x1080@60``)
+because that's exactly the syntax `wlr-randr --mode` accepts.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import re
+import subprocess
+from typing import List, Optional, TypedDict
+
+log = logging.getLogger(__name__)
+
+
+# The cage session always runs as uid 1000 / wayland-0 (single-user kiosk).
+_WAYLAND_ENV = {
+    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "WAYLAND_DISPLAY": "wayland-0",
+}
+
+
+class DisplayState(TypedDict, total=False):
+    available: bool
+    error: str
+    output: str
+    current: str
+    modes: List[str]
+
+
+def _run(*args: str, timeout: float = 5.0) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    env.update(_WAYLAND_ENV)
+    return subprocess.run(
+        ["wlr-randr", *args],
+        capture_output=True, text=True, timeout=timeout, env=env,
+    )
+
+
+# Output header:  HDMI-A-3 "TV@ PHILCO (HDMI-A-3)"
+_OUTPUT_RE = re.compile(r"^(\S+)\s+\".+\"\s*$")
+# Mode line:      1920x1080 px, 60.000000 Hz (preferred, current)
+_MODE_RE = re.compile(
+    r"^\s+(\d+)x(\d+)\s*px,\s*(\d+(?:\.\d+)?)\s*Hz\s*(\(.*\))?\s*$"
+)
+
+
+def get_state() -> DisplayState:
+    """Return the current first-output state, or an error dict."""
+    try:
+        result = _run()
+    except FileNotFoundError:
+        return {"available": False, "error": "wlr-randr not installed"}
+    except subprocess.TimeoutExpired:
+        return {"available": False, "error": "wlr-randr timed out"}
+
+    if result.returncode != 0:
+        return {"available": False, "error": result.stderr.strip() or "wlr-randr failed"}
+
+    output: Optional[str] = None
+    current: Optional[str] = None
+    modes: List[str] = []
+    seen: set[str] = set()
+
+    for line in result.stdout.splitlines():
+        m = _OUTPUT_RE.match(line)
+        if m:
+            # First connected output wins. If you ever support multi-display,
+            # this is the place to make the choice explicit.
+            if output is None:
+                output = m.group(1)
+            continue
+        m = _MODE_RE.match(line)
+        if m and output is not None:
+            w, h, hz = m.group(1), m.group(2), m.group(3)
+            flags = m.group(4) or ""
+            mode = f"{w}x{h}@{int(round(float(hz)))}"
+            if mode not in seen:
+                seen.add(mode)
+                modes.append(mode)
+            if "current" in flags:
+                current = mode
+
+    if output is None:
+        return {"available": False, "error": "no connected output"}
+
+    return {
+        "available": True,
+        "output": output,
+        "current": current or "",
+        "modes": modes,
+    }
+
+
+def set_mode(mode: str) -> tuple[bool, str]:
+    """Set the first connected output to ``mode`` (e.g. ``1920x1080@60``)."""
+    state = get_state()
+    if not state.get("available"):
+        return False, state.get("error", "display state unavailable")
+    if mode not in state.get("modes", []):
+        return False, f"mode {mode!r} not supported by this output"
+    try:
+        result = _run("--output", state["output"], "--mode", mode)
+    except subprocess.TimeoutExpired:
+        return False, "wlr-randr timed out"
+    if result.returncode != 0:
+        return False, result.stderr.strip() or "wlr-randr failed"
+    log.info("Display mode set to %s on %s", mode, state["output"])
+    return True, ""

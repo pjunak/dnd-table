@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>gpu-probe: starting...</title></head>
+<body style="background:#111;color:#0f0;font-family:monospace;padding:1em">
+<h1 id="h">GPU probe</h1>
+<pre id="out">running...</pre>
+<canvas id="c" width="32" height="32" style="display:none"></canvas>
+<script>
+(() => {
+  const out = document.getElementById('out');
+  const log = (s) => { out.textContent += "\n" + s; };
+  let title = "gpu-probe";
+  try {
+    const c = document.getElementById('c');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) { document.title = "NO_WEBGL"; out.textContent = "No WebGL context"; return; }
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const version = gl.getParameter(gl.VERSION);
+    const glsl = gl.getParameter(gl.SHADING_LANGUAGE_VERSION);
+    const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    title = `WEBGL_OK | ${renderer}`;
+    log("vendor:    " + vendor);
+    log("renderer:  " + renderer);
+    log("version:   " + version);
+    log("glsl:      " + glsl);
+    log("maxTex:    " + maxTex);
+    // Video decode test: create a <video> and check if HW decode hints are exposed
+    const v = document.createElement('video');
+    const canPlay = {
+      h264: v.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+      vp9: v.canPlayType('video/webm; codecs="vp9"'),
+      hevc: v.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"'),
+      av1: v.canPlayType('video/mp4; codecs="av01.0.05M.08"'),
+    };
+    log("canPlay:   " + JSON.stringify(canPlay));
+  } catch (e) {
+    title = "ERR " + e.message;
+    log("ERR " + e.message);
+  }
+  document.title = title;
+})();
+</script>
+</body>
+</html>

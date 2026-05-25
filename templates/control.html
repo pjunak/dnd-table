@@ -288,119 +288,75 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   <!-- Display -->
   <div class="card">
     <div class="card-title">Display</div>
-    <div class="row">
-      <button class="btn active" id="dm-display" onclick="setDisplayMode('display')">Display</button>
-      <button class="btn" id="dm-tv" onclick="setDisplayMode('tv')">TV</button>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div>
+        <label style="font-size:0.85em;color:var(--text)">Resolution</label>
+        <div id="disp-info" style="font-size:0.7em;color:var(--text-dim)">Loading…</div>
+      </div>
+      <select id="disp-mode" onchange="setDisplayMode(this.value)" style="min-width:140px">
+        <option>—</option>
+      </select>
     </div>
-    <p id="dm-desc" style="font-size:0.75em;color:var(--text-dim);margin-top:6px">
-      Direct display output, no TV adjustments needed.
+    <p style="font-size:0.75em;color:var(--text-dim);margin-top:8px">
+      Changing the resolution restarts the display briefly. The TV will go black for about a second.
     </p>
+  </div>
 
-    <!-- TV-only section -->
-    <div id="tv-section" style="display:none">
-      <div style="border-top:1px solid var(--border);margin:10px 0"></div>
-
-      <div class="card-title" style="margin-bottom:8px">TV Picture Correction</div>
-      <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
-        Fix common HDMI-to-TV picture issues like crushed blacks, washed-out colors, and blurry edges.
-      </p>
-
-      <div class="row" style="justify-content:space-between">
-        <div>
-          <label style="font-size:0.85em;color:var(--text)">Color Range</label>
-          <div style="font-size:0.7em;color:var(--text-dim)">Full RGB (PC) or Limited (TV 16-235)</div>
+  <!-- Safe Area -->
+  <div class="card">
+    <div class="card-title">Safe Area</div>
+    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+      Inset the rendered scene from the edges of the screen — use this if the TV crops the picture.
+      Adjust until the red border disappears behind the TV edges and the green border is just visible.
+    </p>
+    <div class="row">
+      <button class="btn btn-sm" id="os-toggle" onclick="toggleOverscan()">Start Calibration</button>
+    </div>
+    <div id="overscan-controls" style="display:none">
+      <div class="row" style="margin-top:8px">
+        <label>Top</label>
+        <div class="stepper">
+          <button class="btn-step" onclick="osStep('top',-1)">-</button>
+          <input type="range" min="0" max="80" value="0" step="1" id="os-top"
+            oninput="setOverscan()">
+          <button class="btn-step" onclick="osStep('top',1)">+</button>
         </div>
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-sm active" id="tv-cr-full" onclick="setTvSetting('tv_color_range','full')">Full</button>
-          <button class="btn btn-sm" id="tv-cr-limited" onclick="setTvSetting('tv_color_range','limited')">Limited</button>
-        </div>
+        <span class="val" id="os-top-v">0</span>
       </div>
-
-      <div class="row" style="margin-top:10px;justify-content:space-between">
-        <div>
-          <label style="font-size:0.85em;color:var(--text)">Underscan Signal</label>
-          <div id="tv-underscan-desc" style="font-size:0.7em;color:var(--text-dim)">Tell the TV not to crop the picture edges</div>
-        </div>
-        <button class="btn btn-sm" id="tv-underscan" onclick="toggleTvBool('tv_underscan')">Off</button>
-      </div>
-
-      <div class="row" style="margin-top:10px;justify-content:space-between">
-        <div>
-          <label style="font-size:0.85em;color:var(--text)">Dot-by-Dot</label>
-          <div id="tv-sharpness-desc" style="font-size:0.7em;color:var(--text-dim)">Disable GPU scaling for sharp 1:1 pixels</div>
-        </div>
-        <button class="btn btn-sm" id="tv-sharpness" onclick="toggleTvBool('tv_sharpness')">Off</button>
-      </div>
-
-      <div style="border-top:1px solid var(--border);margin:10px 0"></div>
-
-      <div class="card-title" style="margin-bottom:8px">Overscan Calibration</div>
-      <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
-        Adjust until the red border disappears behind the TV edges and the green border is just visible.
-      </p>
       <div class="row">
-        <button class="btn btn-sm" id="os-toggle" onclick="toggleOverscan()">Start Calibration</button>
+        <label>Bottom</label>
+        <div class="stepper">
+          <button class="btn-step" onclick="osStep('bottom',-1)">-</button>
+          <input type="range" min="0" max="80" value="0" step="1" id="os-bottom"
+            oninput="setOverscan()">
+          <button class="btn-step" onclick="osStep('bottom',1)">+</button>
+        </div>
+        <span class="val" id="os-bottom-v">0</span>
       </div>
-      <div id="overscan-controls" style="display:none">
-        <div class="row" style="margin-top:8px">
-          <label>Top</label>
-          <div class="stepper">
-            <button class="btn-step" onclick="osStep('top',-1)">-</button>
-            <input type="range" min="0" max="80" value="0" step="1" id="os-top"
-              oninput="setOverscan()">
-            <button class="btn-step" onclick="osStep('top',1)">+</button>
-          </div>
-          <span class="val" id="os-top-v">0</span>
+      <div class="row">
+        <label>Left</label>
+        <div class="stepper">
+          <button class="btn-step" onclick="osStep('left',-1)">-</button>
+          <input type="range" min="0" max="80" value="0" step="1" id="os-left"
+            oninput="setOverscan()">
+          <button class="btn-step" onclick="osStep('left',1)">+</button>
         </div>
-        <div class="row">
-          <label>Bottom</label>
-          <div class="stepper">
-            <button class="btn-step" onclick="osStep('bottom',-1)">-</button>
-            <input type="range" min="0" max="80" value="0" step="1" id="os-bottom"
-              oninput="setOverscan()">
-            <button class="btn-step" onclick="osStep('bottom',1)">+</button>
-          </div>
-          <span class="val" id="os-bottom-v">0</span>
-        </div>
-        <div class="row">
-          <label>Left</label>
-          <div class="stepper">
-            <button class="btn-step" onclick="osStep('left',-1)">-</button>
-            <input type="range" min="0" max="80" value="0" step="1" id="os-left"
-              oninput="setOverscan()">
-            <button class="btn-step" onclick="osStep('left',1)">+</button>
-          </div>
-          <span class="val" id="os-left-v">0</span>
-        </div>
-        <div class="row">
-          <label>Right</label>
-          <div class="stepper">
-            <button class="btn-step" onclick="osStep('right',-1)">-</button>
-            <input type="range" min="0" max="80" value="0" step="1" id="os-right"
-              oninput="setOverscan()">
-            <button class="btn-step" onclick="osStep('right',1)">+</button>
-          </div>
-          <span class="val" id="os-right-v">0</span>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button class="btn btn-sm btn-play" onclick="applyOverscan()">Apply</button>
-          <button class="btn btn-sm btn-stop" onclick="cancelOverscan()">Cancel</button>
-        </div>
+        <span class="val" id="os-left-v">0</span>
       </div>
-
-      <!-- Hardware overscan (RPi only) -->
-      <div id="hw-overscan-section" style="display:none">
-        <div style="border-top:1px solid var(--border);margin:10px 0"></div>
-        <div class="card-title" style="margin-bottom:8px">Hardware Overscan</div>
-        <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
-          Save the calibrated overscan values to the boot config for signal-level correction. Requires a reboot to apply.
-        </p>
-        <p id="hw-overscan-info" style="font-size:0.75em;color:var(--text-dim);margin-bottom:8px;display:none"></p>
-        <div class="row">
-          <button class="btn btn-sm" onclick="applyHwOverscan()">Apply to config.txt &amp; Reboot</button>
+      <div class="row">
+        <label>Right</label>
+        <div class="stepper">
+          <button class="btn-step" onclick="osStep('right',-1)">-</button>
+          <input type="range" min="0" max="80" value="0" step="1" id="os-right"
+            oninput="setOverscan()">
+          <button class="btn-step" onclick="osStep('right',1)">+</button>
         </div>
+        <span class="val" id="os-right-v">0</span>
       </div>
-
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-sm btn-play" onclick="applyOverscan()">Apply</button>
+        <button class="btn btn-sm btn-stop" onclick="cancelOverscan()">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -657,93 +613,49 @@ function cancelOverscan(){
   });
 }
 
-/* ─── Display Mode & TV Settings ─── */
-var _displayMode='display';
+/* ─── Display Resolution ─── */
+var _dispModeCurrent='';
 
-function setDisplayMode(mode){
-  _displayMode=mode;
-  api('/display_mode',{display_mode:mode}).then(function(d){
-    _syncDisplayMode(d);
-    toast(mode==='tv'?'TV mode enabled':'Display mode enabled');
+function refreshDisplayModes(){
+  fetch('/api/display/modes').then(function(r){return r.json()}).then(function(d){
+    var sel=document.getElementById('disp-mode');
+    var info=document.getElementById('disp-info');
+    if(!d.available){
+      sel.innerHTML='<option>—</option>';
+      sel.disabled=true;
+      info.textContent=d.error||'unavailable';
+      return;
+    }
+    sel.disabled=false;
+    _dispModeCurrent=d.current||'';
+    var html='';
+    (d.modes||[]).forEach(function(m){
+      var sel=(m===_dispModeCurrent)?' selected':'';
+      html+='<option value="'+m+'"'+sel+'>'+m+'</option>';
+    });
+    sel.innerHTML=html;
+    var note=d.preferred && d.preferred!==d.current
+      ? ' (preferred '+d.preferred+', applies after reboot)' : '';
+    info.textContent=(d.output||'')+note;
+  }).catch(function(){
+    document.getElementById('disp-info').textContent='Failed to query display';
   });
 }
 
-function setTvSetting(key,value){
-  var body={};body[key]=value;
-  api('/display_mode',body).then(function(d){_syncDisplayMode(d)});
-}
-
-function toggleTvBool(key){
-  var cur=(key==='tv_underscan')?state.tv_underscan:state.tv_sharpness;
-  /* read current from our local tracking */
-  var btn=document.getElementById(key.replace('_','-'));
-  var isOn=btn&&btn.classList.contains('active');
-  var body={};body[key]=!isOn;
-  api('/display_mode',body).then(function(d){_syncDisplayMode(d)});
-}
-
-function _syncDisplayMode(d){
-  if(!d)return;
-  _displayMode=d.display_mode||'display';
-  var isTv=_displayMode==='tv';
-  document.getElementById('dm-display').classList.toggle('active',!isTv);
-  document.getElementById('dm-tv').classList.toggle('active',isTv);
-  document.getElementById('dm-desc').textContent=isTv
-    ?'TV mode: overscan calibration and picture correction enabled.'
-    :'Direct display output, no TV adjustments needed.';
-  document.getElementById('tv-section').style.display=isTv?'block':'none';
-
-  /* TV sub-settings */
-  document.getElementById('tv-cr-full').classList.toggle('active',d.tv_color_range==='full');
-  document.getElementById('tv-cr-limited').classList.toggle('active',d.tv_color_range==='limited');
-  var usBtn=document.getElementById('tv-underscan');
-  usBtn.textContent=d.tv_underscan?'On':'Off';
-  usBtn.classList.toggle('active',!!d.tv_underscan);
-  var shBtn=document.getElementById('tv-sharpness');
-  shBtn.textContent=d.tv_sharpness?'On':'Off';
-  shBtn.classList.toggle('active',!!d.tv_sharpness);
-
-  /* Grey out unavailable xrandr properties */
-  var avail=d.tv_props_available||{};
-  _setTvPropAvail('tv-underscan','tv-underscan-desc',avail.underscan);
-  _setTvPropAvail('tv-sharpness','tv-sharpness-desc',avail.sharpness);
-
-  /* Show hardware overscan info if on RPi */
-  var hwOs=document.getElementById('hw-overscan-section');
-  if(hwOs){
-    var isRpi=d.platform_info&&d.platform_info.is_rpi;
-    hwOs.style.display=isRpi?'block':'none';
-    if(isRpi&&d.boot_overscan){
-      var info=document.getElementById('hw-overscan-info');
-      if(info){
-        var bo=d.boot_overscan;
-        var hasHw=bo.top||bo.bottom||bo.left||bo.right;
-        info.textContent=hasHw
-          ?'Hardware overscan active: T:'+bo.top+' B:'+bo.bottom+' L:'+bo.left+' R:'+bo.right
-          :'No hardware overscan set in config.txt';
-        info.style.display='block';
-      }
+function setDisplayMode(mode){
+  if(!mode || mode===_dispModeCurrent) return;
+  if(!confirm('Switch to '+mode+'? The display will go black for ~1 s.'))
+    {refreshDisplayModes();return;}
+  toast('Switching to '+mode+'…');
+  api('/api/display/mode',{mode:mode}).then(function(d){
+    if(d && d.ok){
+      _dispModeCurrent=mode;
+      /* Backend restarts greetd; the page will keep responding. */
+      setTimeout(refreshDisplayModes, 3500);
+    } else {
+      toast('Error: '+(d&&d.error||'failed'));
+      refreshDisplayModes();
     }
-  }
-}
-
-function _setTvPropAvail(btnId,descId,available){
-  var btn=document.getElementById(btnId);
-  var desc=document.getElementById(descId);
-  if(available===false){
-    btn.disabled=true;
-    btn.style.opacity='0.4';
-    btn.style.pointerEvents='none';
-    if(desc) desc.textContent='Not available on this hardware';
-  }
-}
-
-function applyHwOverscan(){
-  if(!confirm('This will save the current overscan values to the boot config and reboot.\n\nThe visual calibration will reset to 0 after reboot since the hardware will handle it.\n\nContinue?'))return;
-  toast('Writing to config.txt and rebooting…');
-  api('/boot_config/apply',{}).then(function(d){
-    if(d&&d.error){toast('Error: '+d.error);return;}
-    toast('Rebooting…');
   });
 }
 
@@ -1111,16 +1023,6 @@ function refreshStatus(){
         }
       });
     }
-    /* Sync display mode & TV settings */
-    _syncDisplayMode({
-      display_mode:d.display_mode||'display',
-      tv_color_range:d.tv_color_range||'full',
-      tv_underscan:!!d.tv_underscan,
-      tv_sharpness:!!d.tv_sharpness,
-      tv_props_available:d.tv_props_available,
-      platform_info:d.platform_info,
-      boot_overscan:d.boot_overscan
-    });
   });
 }
 function refreshSources(){
@@ -1134,7 +1036,7 @@ function refreshSources(){
   });
 }
 
-refreshStatus();refreshSources();browseFolder('sdcard','');
+refreshStatus();refreshSources();refreshDisplayModes();browseFolder('sdcard','');
 setInterval(refreshStatus,5000);setInterval(refreshSources,10000);
 </script>
 </body></html>

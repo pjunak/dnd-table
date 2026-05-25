@@ -13,3 +13,8 @@ env/
 
 # Claude
 .claude/
+
+# Local debug artifacts (screenshots from dev/verification)
+*.png
+!templates/**/*.png
+!static/**/*.png

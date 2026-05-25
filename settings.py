@@ -1,8 +1,8 @@
 """
 DnD Table – Persistent settings (survives reboot).
 
-Stores all user-configurable state to a JSON file so settings are
-preserved across service restarts.
+Stores user-configurable state to a JSON file so it's preserved across
+service restarts.
 """
 
 import json
@@ -11,16 +11,12 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SETTINGS_FILE = Path("/home/dnd/dnd-display/settings.json")
+SETTINGS_FILE = Path("/home/dndtable/dnd-display/settings.json")
 
-# Fallback: same directory as the script
+# Fallback: same directory as the script (for dev runs)
 _FALLBACK_FILE = Path(__file__).resolve().parent / "settings.json"
 
 _DEFAULTS = {
-    "display_mode": "display",       # "display" or "tv"
-    "tv_color_range": "full",        # "full" or "limited"
-    "tv_underscan": False,           # enable underscan via xrandr
-    "tv_sharpness": False,           # disable GPU scaling (dot-by-dot)
     "grid": {
         "enabled": False,
         "type": "square",
@@ -44,6 +40,9 @@ _DEFAULTS = {
         "ambient": 80,
         "sfx": 80,
     },
+    "display": {
+        "mode": None,   # None = use compositor / EDID default
+    },
 }
 
 
@@ -55,7 +54,11 @@ def _settings_path():
 
 
 def load():
-    """Load settings from disk, returning a dict merged with defaults."""
+    """Load settings from disk, returning a dict merged with defaults.
+
+    Unknown keys from old (RPi-era) settings files are preserved on read
+    and silently dropped on the next save, so migrations are painless.
+    """
     path = _settings_path()
     data = {}
     if path.exists():
@@ -65,15 +68,14 @@ def load():
         except Exception as e:
             log.warning("Failed to read settings file: %s", e)
 
-    # Deep-merge defaults for any missing keys
-    merged = _deep_merge(_DEFAULTS, data)
-    return merged
+    return _deep_merge(_DEFAULTS, data)
 
 
 def save(settings):
     """Write settings dict to disk."""
     path = _settings_path()
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(settings, indent=2))
     except Exception as e:
         log.warning("Failed to save settings: %s", e)

@@ -13,7 +13,7 @@ from media import get_file_type
 
 def detect_usb_drives():
     usb_paths = []
-    user = os.environ.get("USER", "dnd")
+    user = os.environ.get("USER", "dndtable")
     for base in [Path("/media") / user, Path("/run/media") / user]:
         if base.exists():
             for p in base.iterdir():

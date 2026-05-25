@@ -1,0 +1,9 @@
+[terminal]
+# Run on tty1; getty@tty1 is disabled so this is what appears at boot.
+vt = 1
+
+[default_session]
+# `-s` allows VT switching (Ctrl+Alt+F2) so you can drop to a console for debugging.
+# `--` separates cage options from the application invocation.
+command = "cage -s -- /opt/dnd-table/kiosk.sh"
+user = "dndtable"

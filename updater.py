@@ -47,7 +47,7 @@ def _ensure_repo():
         return True
 
     # Running from /opt/dnd-table which isn't a git repo — clone one
-    clone_dir = "/home/dnd/dnd-table"
+    clone_dir = "/home/dndtable/dnd-table"
     if os.path.isdir(os.path.join(clone_dir, ".git")):
         global REPO_DIR
         REPO_DIR = clone_dir
@@ -161,13 +161,13 @@ def apply_update():
     except Exception as e:
         return {"ok": False, "error": f"rsync error: {e}"}
 
-    # Fix ownership and permissions
+    # Fix ownership
     subprocess.run(
-        ["sudo", "chown", "-R", "dnd:dnd", INSTALL_DIR],
+        ["sudo", "chown", "-R", "dndtable:dndtable", INSTALL_DIR],
         capture_output=True, timeout=10,
     )
     subprocess.run(
-        ["sudo", "chmod", "+x", f"{INSTALL_DIR}/setup-display.sh"],
+        ["sudo", "chmod", "+x", f"{INSTALL_DIR}/kiosk.sh"],
         capture_output=True, timeout=5,
     )
 
