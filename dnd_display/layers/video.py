@@ -23,10 +23,11 @@ _VERT = """
 #version 330
 in vec2 in_pos;
 in vec2 in_uv;
+uniform vec2 u_scale;     // aspect-fit scale ≤ 1 on the over-fitting axis
 out vec2 v_uv;
 void main() {
     v_uv = in_uv;
-    gl_Position = vec4(in_pos, 0.0, 1.0);
+    gl_Position = vec4(in_pos * u_scale, 0.0, 1.0);
 }
 """
 
@@ -107,12 +108,35 @@ class VideoLayer(Layer):
         else:
             self._tex.write(data)
 
+    def _compute_aspect_scale(self) -> tuple[float, float]:
+        """Letterbox/pillarbox scale for the textured quad.
+
+        The quad is at NDC corners (-1,-1)..(1,1); multiplying ``in_pos``
+        by these values shrinks it along whichever axis would otherwise
+        stretch the source frame.  Returns (1, 1) until both viewport and
+        texture sizes are known.
+        """
+        tw, th = self._tex_size
+        vw, vh = self.width, self.height
+        if tw <= 0 or th <= 0 or vw <= 0 or vh <= 0:
+            return 1.0, 1.0
+        viewport_aspect = vw / vh
+        video_aspect = tw / th
+        if video_aspect > viewport_aspect:
+            # Video wider than viewport — fit width, letterbox top/bottom.
+            return 1.0, viewport_aspect / video_aspect
+        else:
+            # Video taller than viewport — fit height, pillarbox left/right.
+            return video_aspect / viewport_aspect, 1.0
+
     def render(self) -> None:
         if self._tex is None or self._prog is None or self._vao is None:
             return
+        sx, sy = self._compute_aspect_scale()
         self._tex.use(location=0)
         self._prog["u_tex"].value = 0
         self._prog["u_opacity"].value = self.opacity
+        self._prog["u_scale"].value = (sx, sy)
         self._vao.render(mode=moderngl.TRIANGLE_STRIP)
 
     def teardown(self) -> None:

@@ -3,7 +3,9 @@ DnD Display – top-level app.
 
 Owns the pyglet Window and the moderngl Context, builds the Compositor
 with the canonical layer stack, and drives the per-frame update/render
-cycle.
+cycle.  All cross-thread state changes from Flask flow in through the
+SSE subscriber, which marshals them onto the main thread via
+``pyglet.clock.schedule_once`` so GL work stays single-threaded.
 """
 
 from __future__ import annotations
@@ -18,18 +20,19 @@ import time
 # pyglet honours the backend env var only at import time.
 os.environ.setdefault("PYGLET_BACKEND", "wayland")
 
-import pyglet                       # noqa: E402
-import moderngl                      # noqa: E402
+import pyglet                        # noqa: E402
+import moderngl                       # noqa: E402
 
-from .compositor import Compositor   # noqa: E402
-from .layers import (                # noqa: E402
+from .compositor import Compositor    # noqa: E402
+from .layers import (                 # noqa: E402
+    CalibrationLayer,
     DebugTriangleLayer,
     GridLayer,
     SplashLayer,
     VideoLayer,
 )
 from .network import get_hostname, get_local_ip   # noqa: E402
-from .themes import THEMES           # noqa: E402
+from .themes import THEMES            # noqa: E402
 
 
 # Where the Flask control plane publishes state events.  Always
@@ -41,15 +44,17 @@ log = logging.getLogger(__name__)
 
 
 # Canonical layer z-order (low → high):
-#   100  video        — map/ambient background
-#   200  grid         — square/hex overlay
+#   100  video        — map / video background (when a file is playing)
+#   200  grid         — square / hex overlay
 #   300  tokens       — sprites (future)
-#   400  vfx          — fog/lighting/weather (future)
-#   500  splash       — D20 splash overrides the scene (future)
+#   400  vfx          — fog / lighting / weather (future)
+#   500  splash       — D20 splash; visible whenever nothing is playing
 #   900  debug        — dev-only overlays
+#   950  calibration  — red/green safe-area guides (only while calibrating)
 
 
 class DndDisplay(pyglet.window.Window):
+    """Pyglet window + moderngl context + canonical layer stack."""
 
     def __init__(self) -> None:
         config = pyglet.gl.Config(
@@ -70,53 +75,49 @@ class DndDisplay(pyglet.window.Window):
         log.info("GL_VERSION   = %s", info.get("GL_VERSION"))
         log.info("GLSL_VERSION = %s", info.get("GL_SHADING_LANGUAGE_VERSION"))
 
+        # ── Compositor + layer stack ────────────────────────────────
         self.compositor = Compositor(self.ctx, self.width, self.height)
 
-        # Layer stack
         self.video = VideoLayer(z_order=100)
         self.grid = GridLayer(z_order=200)
         self.splash = SplashLayer(z_order=500)
         self.debug = DebugTriangleLayer(z_order=900)
-        self.debug.opacity = 0.0  # off by default; flip in-code for debugging
+        self.debug.opacity = 0.0
         self.debug.visible = False
+        self.calibration = CalibrationLayer(z_order=950)
+
         self.compositor.add(self.video)
         self.compositor.add(self.grid)
         self.compositor.add(self.splash)
         self.compositor.add(self.debug)
+        self.compositor.add(self.calibration)
+        self.calibration.set_framebuffer_size(self.width, self.height)
 
-        # ── Dev defaults (replaced by SSE state in task #10) ─────
-        # Visible grid so we can see the compositor working.
+        # ── Provisional defaults (overwritten by SSE init ~100 ms in) ─
+        # Grid invisible until the user enables it from the panel.
         self.grid.set_state({
-            "enabled": True,
+            "enabled": False,
             "type": "square",
-            "size": 80,
-            "thickness": 2,
-            "opacity": 0.55,
-            "color": "#22ff66",
+            "size": 55,
+            "thickness": 1,
+            "opacity": 0.6,
+            "color": "#000000",
             "offset_x": 0,
             "offset_y": 0,
         })
-        # Start the videotestsrc smpte pattern as a placeholder background.
-        # Real video plays via play_file() once the SSE bridge is wired.
-        self.video.play_test_pattern("smpte")
 
-        # Theme selection — replaced by the SSE init message as soon
-        # as the subscriber connects (~100ms after Flask is up).  This
-        # local default is just what's shown during that brief gap;
-        # "ancient" is intentionally picked so even a fresh box with
-        # no settings.json shows off the cracked-stone work.
-        # Press T to cycle through all registered themes.
+        # Theme — local fallback during the brief gap before SSE init lands.
+        # "ancient" picked so a fresh box shows off the cracked-stone work.
         self._theme_names = list(THEMES.keys())
         self._theme_idx = self._theme_names.index("ancient") \
             if "ancient" in self._theme_names else 0
         self.splash.set_theme(self._theme_names[self._theme_idx])
 
-        # Show the splash on launch so we can see it; SSE will own this
-        # decision once the bridge is wired.
-        self.splash.show()
+        # ── Playback state ──────────────────────────────────────────
+        self._current_file_path: str | None = None
+        self._update_splash_visibility()
 
-        # Populate the address overlay immediately and refresh periodically
-        # so the splash always shows the right URL (e.g., after a DHCP renew).
+        # Address overlay — refreshed periodically so DHCP renews show up.
         self._refresh_address(0.0)
         pyglet.clock.schedule_interval(self._refresh_address, 5.0)
 
@@ -128,23 +129,73 @@ class DndDisplay(pyglet.window.Window):
     def _refresh_address(self, dt: float) -> None:
         hostname = get_hostname()
         ip = get_local_ip()
-        # No-op if unchanged; SplashLayer dedupes.
+        # No-op if unchanged; SplashLayer dedupes internally.
         self.splash.set_address(hostname, ip)
 
-    # ── State hooks (called on main thread; safe for GL) ─────────
+    # ── State setters (main thread; safe for GL) ─────────────────
 
     def set_splash_theme(self, name: str) -> None:
-        """Apply a theme by name and keep the T-cycle index in sync.
-
-        Safe to call from the main thread only.  The SSE subscriber
-        marshals onto the main thread via `pyglet.clock.schedule_once`.
-        """
+        """Apply a theme by name, keeping the T-cycle index aligned."""
         if name not in THEMES:
             log.warning("Ignoring unknown splash theme: %r", name)
             return
         if name in self._theme_names:
             self._theme_idx = self._theme_names.index(name)
         self.splash.set_theme(name)
+
+    def play_file(self, path: str | None) -> None:
+        """Start playback of ``path`` and hide the splash.
+
+        Passing None / empty path is a no-op; use ``stop()`` to clear.
+        """
+        if not path:
+            return
+        log.info("Playing: %s", path)
+        self._current_file_path = path
+        # GStreamer / PIL plumbing lives in VideoLayer; it handles both
+        # video files and (via decodebin) still images.
+        self.video.play_file(path)
+        self._update_splash_visibility()
+
+    def stop_playback(self) -> None:
+        """Stop the video layer and bring the splash back."""
+        if self._current_file_path is None and not self.video.visible:
+            return
+        log.info("Stopping playback")
+        self._current_file_path = None
+        self.video.stop()
+        self._update_splash_visibility()
+
+    def set_grid_state(self, st: dict) -> None:
+        """Forward a grid_state dict from Flask to the GridLayer."""
+        self.grid.set_state(st)
+
+    def set_overscan(self, ov: dict) -> None:
+        """Update safe-area inset + calibration overlay.
+
+        ``ov`` mirrors the Flask state dict: top/bottom/left/right (px)
+        and a ``calibration`` boolean that toggles the red/green guides.
+        """
+        top = int(ov.get("top", 0) or 0)
+        bottom = int(ov.get("bottom", 0) or 0)
+        left = int(ov.get("left", 0) or 0)
+        right = int(ov.get("right", 0) or 0)
+        calibrating = bool(ov.get("calibration", False))
+
+        self.compositor.set_overscan(top=top, bottom=bottom,
+                                     left=left, right=right)
+        self.calibration.set_inset(top, bottom, left, right)
+        self.calibration.set_framebuffer_size(self.width, self.height)
+        self.calibration.visible = calibrating
+
+    # ── Internal helpers ─────────────────────────────────────────
+
+    def _update_splash_visibility(self) -> None:
+        """Splash is shown only when nothing is playing."""
+        if self._current_file_path:
+            self.splash.hide()
+        else:
+            self.splash.show()
 
     # ── pyglet event hooks ───────────────────────────────────────
 
@@ -154,6 +205,9 @@ class DndDisplay(pyglet.window.Window):
             self.close()
         elif symbol == pyglet.window.key.T:
             # Cycle splash themes — quick preview without restarting.
+            # NB: this updates only the local app; Flask doesn't learn
+            # about it until the next /api/splash/theme POST, so the
+            # control panel may temporarily show a stale highlight.
             self._theme_idx = (self._theme_idx + 1) % len(self._theme_names)
             self.splash.set_theme(self._theme_names[self._theme_idx])
 
@@ -161,7 +215,7 @@ class DndDisplay(pyglet.window.Window):
         super().on_resize(width, height)
         if hasattr(self, "compositor"):
             self.compositor.resize(width, height)
-            self.ctx.viewport = (0, 0, width, height)
+            self.calibration.set_framebuffer_size(width, height)
 
     def on_draw(self):
         now = time.monotonic()
@@ -169,8 +223,6 @@ class DndDisplay(pyglet.window.Window):
         self._last_time = now
 
         self.compositor.update(dt)
-        self.ctx.viewport = (0, 0, self.width, self.height)
-        self.ctx.clear(0.05, 0.03, 0.08, 1.0)
         self.compositor.render()
 
         self._frame_count += 1
@@ -191,40 +243,78 @@ def _dispatch_event(window: "DndDisplay", data: dict) -> None:
 
     Runs on the subscriber thread; everything that touches GL or
     pyglet state is bounced onto the main thread via
-    `pyglet.clock.schedule_once`.
+    ``pyglet.clock.schedule_once``.
+
+    The ``init`` event carries the entire state snapshot Flask had at
+    the moment of connection; we apply each piece individually so a
+    mid-session reconnect lands exactly where the user left it
+    (current map, grid, overscan, theme).
     """
     evt = data.get("type")
 
-    # Theme can ride along on either the init snapshot or a dedicated
-    # `splash_theme` event — handle both the same way.
-    theme: str | None = None
-    if evt == "init":
-        theme = data.get("splash_theme")
-    elif evt == "splash_theme":
-        theme = data.get("theme")
-    if theme:
-        pyglet.clock.schedule_once(
-            lambda dt, n=theme: window.set_splash_theme(n), 0,
-        )
+    def schedule(fn, *args):
+        # Capture args at call time so the lambda doesn't see later loop vars.
+        pyglet.clock.schedule_once(lambda dt, fn=fn, a=args: fn(*a), 0)
 
-    # Future: grid / overscan / play / stop dispatched here too.
+    if evt == "init":
+        if data.get("splash_theme"):
+            schedule(window.set_splash_theme, data["splash_theme"])
+        if isinstance(data.get("grid"), dict):
+            schedule(window.set_grid_state, data["grid"])
+        if isinstance(data.get("overscan"), dict):
+            schedule(window.set_overscan, data["overscan"])
+        if data.get("file_path"):
+            schedule(window.play_file, data["file_path"])
+        else:
+            # Explicit stop in case the previous run left the layer playing.
+            schedule(window.stop_playback)
+        return
+
+    if evt == "splash_theme":
+        if data.get("theme"):
+            schedule(window.set_splash_theme, data["theme"])
+        return
+
+    if evt == "play":
+        # Prefer the absolute path; ``url`` is for legacy browser clients.
+        path = data.get("path") or data.get("file_path")
+        if path:
+            schedule(window.play_file, path)
+        return
+
+    if evt == "stop":
+        schedule(window.stop_playback)
+        return
+
+    if evt == "grid":
+        if isinstance(data.get("grid"), dict):
+            schedule(window.set_grid_state, data["grid"])
+        return
+
+    if evt == "overscan":
+        if isinstance(data.get("overscan"), dict):
+            schedule(window.set_overscan, data["overscan"])
+        return
+
+    # volume / current_audio aren't display-side concerns — Flask owns
+    # them entirely (mpv subprocess + UI sync via /status).  Silently
+    # ignore unknown event types so future Flask additions don't crash
+    # an older display app.
 
 
 def _start_sse_subscriber(window: "DndDisplay") -> None:
-    """Start a daemon thread that subscribes to Flask's SSE stream.
+    """Daemon thread that subscribes to Flask's SSE stream.
 
-    Theme changes flow through this; grid / video / overscan will be
-    added once their consumer code exists.  Connection failures are
-    retried with exponential backoff capped at 15 s so a Flask
-    restart (e.g., after `Update & Restart` from the control panel)
-    recovers automatically.
+    Reconnects with capped exponential backoff so Flask restarts
+    (including the updater's `dnd-table.service` bounce) recover
+    automatically.
     """
     try:
         import requests
         import sseclient
     except ImportError:
         log.warning("requests/sseclient-py unavailable — SSE bridge disabled "
-                    "(theme changes will only apply after restart)")
+                    "(control panel changes will only apply after restart)")
         return
 
     def _run() -> None:
@@ -269,12 +359,9 @@ def main() -> int:
              pyglet.version, moderngl.__version__)
     try:
         window = DndDisplay()
-        # Subscribe to Flask's SSE stream so the control panel can
-        # drive UI state (theme, grid, video) live.  The subscriber
-        # is daemonised so process exit doesn't hang on it.
         _start_sse_subscriber(window)
         # pyglet 2.x defaults to event-driven rendering (only redraws on
-        # invalidation, to save power). For continuous video + animation
+        # invalidation, to save power).  For continuous video + animation
         # we want a fixed-rate loop; vsync still caps the actual rate to
         # the display refresh.
         pyglet.app.run(interval=1.0 / 60.0)

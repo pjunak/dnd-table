@@ -36,6 +36,10 @@ class Layer(ABC):
         self.ctx: Optional[moderngl.Context] = None
         self.width: int = 0
         self.height: int = 0
+        # Set True by layers that want the full framebuffer viewport
+        # (escape the safe-area inset).  The calibration overlay needs
+        # this so its red edge-border renders past the inset.
+        self.full_framebuffer: bool = False
 
     @abstractmethod
     def setup(self, ctx: moderngl.Context) -> None:
@@ -59,13 +63,29 @@ class Layer(ABC):
 
 
 class Compositor:
-    """Renders an ordered stack of Layers."""
+    """Renders an ordered stack of Layers.
+
+    Owns the safe-area / overscan inset: layers render into a sub-rectangle
+    of the framebuffer (top/bottom/left/right in pixels), with the strip
+    outside cleared to black.  Layers compute their own aspect using the
+    inset dimensions reported by ``resize()``, so the D20 stays round and
+    videos preserve their aspect even with non-trivial insets.
+    """
 
     def __init__(self, ctx: moderngl.Context, width: int, height: int):
         self.ctx = ctx
-        self.width = width
-        self.height = height
+        # Full framebuffer dimensions — used to clear the outside-inset border.
+        self.fb_width: int = width
+        self.fb_height: int = height
+        # Effective render area (framebuffer minus overscan).  Exposed to
+        # layers as ``width`` / ``height`` for backwards-compat.
+        self.width: int = width
+        self.height: int = height
+        # Overscan in pixels (clamped non-negative on assignment).
+        self._overscan = {"top": 0, "bottom": 0, "left": 0, "right": 0}
         self._layers: list[Layer] = []
+
+    # ── Layer management ────────────────────────────────────────────
 
     def add(self, layer: Layer) -> Layer:
         layer.setup(self.ctx)
@@ -87,11 +107,39 @@ class Compositor:
                 return l
         return None
 
+    # ── Sizing & overscan ───────────────────────────────────────────
+
     def resize(self, width: int, height: int) -> None:
-        self.width = width
-        self.height = height
-        for l in self._layers:
-            l.resize(width, height)
+        self.fb_width = width
+        self.fb_height = height
+        self._recompute_inset()
+
+    def set_overscan(self, top: int = 0, bottom: int = 0,
+                     left: int = 0, right: int = 0) -> None:
+        """Update safe-area inset (px)."""
+        self._overscan = {
+            "top": max(0, int(top)),
+            "bottom": max(0, int(bottom)),
+            "left": max(0, int(left)),
+            "right": max(0, int(right)),
+        }
+        self._recompute_inset()
+
+    def get_overscan(self) -> dict[str, int]:
+        return dict(self._overscan)
+
+    def _recompute_inset(self) -> None:
+        """Re-derive inset dimensions and notify every layer of the new size."""
+        ov = self._overscan
+        w = max(1, self.fb_width - ov["left"] - ov["right"])
+        h = max(1, self.fb_height - ov["top"] - ov["bottom"])
+        if (w, h) != (self.width, self.height):
+            self.width = w
+            self.height = h
+            for l in self._layers:
+                l.resize(w, h)
+
+    # ── Per-frame ───────────────────────────────────────────────────
 
     def update(self, dt: float) -> None:
         for l in self._layers:
@@ -99,13 +147,35 @@ class Compositor:
                 l.update(dt)
 
     def render(self) -> None:
-        # Default blend mode for transparent layers (grid, splash, VFX).
-        # Individual layers can override inside their render() if needed.
-        self.ctx.enable(moderngl.BLEND)
-        self.ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
+        """Clear the full framebuffer black, then render every visible layer.
+
+        Most layers render into the safe-area inset viewport; layers that
+        set ``full_framebuffer=True`` (currently just the calibration
+        overlay) get the full framebuffer instead so their content can
+        reach the absolute screen edge.
+        """
+        ctx = self.ctx
+        full_vp = (0, 0, self.fb_width, self.fb_height)
+        ctx.viewport = full_vp
+        ctx.clear(0.0, 0.0, 0.0, 1.0)
+
+        # Inset viewport — GL origin is bottom-left, so the y-offset is the
+        # "bottom" inset (NOT "top").
+        ov = self._overscan
+        inset_vp = (ov["left"], ov["bottom"], self.width, self.height)
+
+        ctx.enable(moderngl.BLEND)
+        ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
+
+        current_vp = None
         for l in self._layers:
-            if l.visible and l.opacity > 0.0:
-                l.render()
+            if not l.visible or l.opacity <= 0.0:
+                continue
+            target_vp = full_vp if l.full_framebuffer else inset_vp
+            if target_vp != current_vp:
+                ctx.viewport = target_vp
+                current_vp = target_vp
+            l.render()
 
     def teardown(self) -> None:
         for l in self._layers:
