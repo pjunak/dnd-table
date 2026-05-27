@@ -15,11 +15,13 @@ h1{font-family:'Cinzel',serif;color:var(--gold);text-align:center;font-size:1.6e
   margin-bottom:4px;letter-spacing:0.05em}
 .sub{text-align:center;color:var(--text-dim);font-size:0.85em;margin-bottom:12px}
 
-/* Main Tabs */
-.main-tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)}
-.main-tab{padding:10px 20px;font-family:'Cinzel',serif;font-size:0.9em;color:var(--text-dim);
+/* Main Tabs — must fit on a 360-wide phone; uses horizontal scroll if it doesn't. */
+.main-tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);
+  overflow-x:auto;scrollbar-width:none}
+.main-tabs::-webkit-scrollbar{display:none}
+.main-tab{padding:10px 14px;font-family:'Cinzel',serif;font-size:0.88em;color:var(--text-dim);
   cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;
-  letter-spacing:0.05em;user-select:none}
+  letter-spacing:0.04em;user-select:none;flex-shrink:0}
 .main-tab:hover{color:var(--gold-dim)}
 .main-tab.active{color:var(--gold);border-bottom-color:var(--gold)}
 .tab-content{display:none}.tab-content.active{display:block}
@@ -167,7 +169,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 .picker-box{background:var(--bg);border:1px solid var(--gold-dim);border-radius:10px;
   padding:16px;width:100%;max-width:500px;max-height:80vh;display:flex;flex-direction:column}
 .picker-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.picker-header .card-title{margin-bottom:0}
+.picker-header .card-title{margin-bottom:0;color:var(--gold);font-size:0.95em}
 .picker-bc{display:flex;align-items:center;gap:2px;margin-bottom:10px;flex-wrap:wrap;font-size:0.85em}
 .picker-browser{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
 
@@ -214,11 +216,82 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   text-shadow:0 1px 2px rgba(0,0,0,0.5)}
 .theme-check{color:var(--gold);font-size:1.2em;width:20px;text-align:right;
   flex-shrink:0;text-shadow:0 0 4px rgba(201,168,76,0.6)}
+
+/* ═══════════════════════════════════════════════════════════════
+   UX rework
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Header connection dot — lives next to the subtitle */
+.conn-dot{display:inline-block;width:9px;height:9px;border-radius:50%;
+  background:var(--green);margin-right:6px;vertical-align:middle;
+  box-shadow:0 0 6px rgba(90,168,74,0.6);transition:all 0.3s}
+.conn-dot.offline{background:var(--red);box-shadow:0 0 6px rgba(200,74,74,0.6)}
+
+/* Section divider — groups cards within a tab */
+.section-h{font-family:'Cinzel',serif;color:var(--gold-dim);font-size:0.7em;
+  letter-spacing:0.12em;text-transform:uppercase;margin:18px 0 8px 4px;
+  padding-bottom:4px;border-bottom:1px solid var(--border)}
+.section-h:first-child{margin-top:4px}
+
+/* Playback cards — Map, Ambience.  Title up top (big + tappable),
+   status middle, transport (volume + stop) at the bottom. */
+.play-card .play-title{display:flex;align-items:center;justify-content:space-between;
+  font-family:'Cinzel',serif;color:var(--gold);font-size:1.05em;
+  letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;
+  padding:2px 0 6px;user-select:none;min-height:36px}
+.play-card .play-title .chev{color:var(--gold-dim);font-size:1.2em;font-weight:600}
+.play-card .play-title:hover .chev,.play-card .play-title:active .chev{color:var(--gold)}
+.play-card .play-status{font-size:0.95em;line-height:1.35;padding:6px 0;
+  color:var(--text);min-height:22px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.play-card .play-status.empty{color:var(--text-dim);font-style:italic;font-size:0.85em}
+.play-card .play-meta{font-size:0.72em;color:var(--text-dim);line-height:1.4;
+  margin-top:1px;display:flex;flex-wrap:wrap;gap:8px}
+.play-card .play-meta span+span::before{content:"\b7";margin-right:8px;color:var(--border)}
+.play-card .play-transport{display:flex;align-items:center;gap:10px;margin-top:8px;
+  padding-top:8px;border-top:1px solid var(--border)}
+.play-card .play-transport .vol{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
+.play-card .play-transport .vol input[type=range]{flex:1;min-width:60px}
+.play-card .play-transport .vol .val{font-size:0.75em;color:var(--text-dim);min-width:36px;text-align:right}
+.play-card.is-playing .play-status{color:var(--gold)}
+.play-card.map.is-playing .play-status{color:var(--green)}
+.play-card.ambient.is-playing .play-status{color:var(--purple)}
+
+/* Inline grid controls — sliders live on the Table tab now */
+.grid-card .grid-types{display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.grid-card .grid-types .spacer{flex:1}
+.grid-card .grid-slider{display:flex;align-items:center;gap:10px;padding:4px 0}
+.grid-card .grid-slider label{min-width:64px}
+.grid-card .grid-slider .val{min-width:44px;text-align:right;font-size:0.78em;color:var(--text-dim)}
+.grid-card.disabled .grid-slider{opacity:0.4;pointer-events:none}
+
+/* Library upload — collapsed by default, expands on tap or drag-over */
+.upload-bar{display:flex;align-items:center;justify-content:space-between;
+  gap:10px;padding:10px 14px;border:1px dashed var(--border);border-radius:8px;
+  margin-bottom:10px;cursor:pointer;transition:border-color 0.2s,background 0.2s}
+.upload-bar:hover,.upload-bar.dragover{border-color:var(--gold);background:rgba(201,168,76,0.05)}
+.upload-bar .lbl{color:var(--gold);font-size:0.9em;font-weight:600}
+.upload-bar .hint{color:var(--text-dim);font-size:0.75em}
+.upload-bar .chev{color:var(--gold-dim);font-size:1.1em;transition:transform 0.2s}
+.upload.collapsed{display:none}
+.upload.expanded{display:block;padding:16px;margin-top:-4px}
+.upload.expanded.dragover{border-color:var(--gold);background:rgba(201,168,76,0.05)}
+
+/* Library toolbar — breadcrumb + new-folder on one row */
+.lib-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.lib-toolbar .breadcrumb{margin-bottom:0;flex:1;min-width:0}
+
+/* Update banner — when an update is available */
+.update-banner{display:flex;align-items:center;gap:10px;padding:10px 14px;
+  border:1px solid var(--gold-dim);border-radius:8px;margin-bottom:12px;
+  background:rgba(201,168,76,0.06)}
+.update-banner .info{flex:1;font-size:0.85em;color:var(--text)}
+.update-banner .info b{color:var(--gold)}
 </style></head>
 <body>
 
 <h1>&#9876; DnD Table</h1>
-<p class="sub">dndtable.local:5000</p>
+<p class="sub"><span class="conn-dot" id="connDot" title="Connected"></span><span id="connText">dndtable.local:5000</span></p>
 
 <div class="main-tabs">
   <div class="main-tab active" data-tab="table" onclick="switchTab('table')">Table</div>
@@ -231,43 +304,39 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 <div id="tab-table" class="tab-content active">
 
   <!-- Map card -->
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title clickable" onclick="openPicker('map')">&#128506; Map</div>
-      <div class="vol-row">
+  <div class="card play-card map" id="mapCard">
+    <div class="play-title" onclick="openPicker('map')">
+      <span>&#128506; Map</span>
+      <span class="chev">&#8250;</span>
+    </div>
+    <div class="play-status empty" id="mapStatus">Nothing selected — tap title to choose</div>
+    <div class="play-meta" id="mapMeta"></div>
+    <div class="play-transport">
+      <div class="vol">
         <button class="btn-mute" id="mute-map" onclick="toggleMute('map')" title="Mute">&#128266;</button>
         <input type="range" min="0" max="100" value="80" step="1" id="vol-map"
           oninput="onVolSlider('map',+this.value)">
         <span class="val" id="vol-map-v">80%</span>
       </div>
-    </div>
-    <div class="status-line">
-      <div style="font-size:0.85em;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        <span id="mapLabel">Nothing selected</span>
-        <strong id="curFile" class="map-strong"></strong>
-        <div id="mapMeta" class="file-meta"></div>
-      </div>
-      <div id="mapBtns" class="acts"></div>
+      <div id="mapBtns"></div>
     </div>
   </div>
 
   <!-- Ambience card -->
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title clickable" onclick="openPicker('ambient')">&#127925; Ambience</div>
-      <div class="vol-row">
+  <div class="card play-card ambient" id="ambCard">
+    <div class="play-title" onclick="openPicker('ambient')">
+      <span>&#127925; Ambience</span>
+      <span class="chev">&#8250;</span>
+    </div>
+    <div class="play-status empty" id="ambStatus">Nothing selected — tap title to choose</div>
+    <div class="play-transport">
+      <div class="vol">
         <button class="btn-mute" id="mute-ambient" onclick="toggleMute('ambient')" title="Mute">&#128266;</button>
         <input type="range" min="0" max="100" value="80" step="1" id="vol-ambient"
           oninput="onVolSlider('ambient',+this.value)">
         <span class="val" id="vol-ambient-v">80%</span>
       </div>
-    </div>
-    <div class="status-line">
-      <div style="font-size:0.85em;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        <span id="ambLabel">Nothing selected</span>
-        <strong id="curAudio" class="audio-strong"></strong>
-      </div>
-      <div id="ambBtns" class="acts"></div>
+      <div id="ambBtns"></div>
     </div>
   </div>
 
@@ -283,14 +352,34 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     </div>
   </div>
 
-  <!-- Grid quick controls -->
-  <div class="card">
+  <!-- Grid overlay — full controls live here so the GM doesn't tab-hop mid-session -->
+  <div class="card grid-card" id="gridCard">
     <div class="card-title">Grid Overlay</div>
-    <div class="row">
+    <div class="grid-types">
       <button class="btn active" id="g-none" onclick="setGridType('none')">Off</button>
       <button class="btn" id="g-square" onclick="setGridType('square')">Squares</button>
       <button class="btn" id="g-hex" onclick="setGridType('hex')">Hexes</button>
-      <input type="color" id="g-color" value="#000000" onchange="setGrid('color',this.value)">
+      <span class="spacer"></span>
+      <input type="color" id="g-color" value="#000000" onchange="setGrid('color',this.value)"
+        title="Line colour">
+    </div>
+    <div class="grid-slider">
+      <label>Size</label>
+      <input type="range" min="20" max="200" value="55" step="1" id="g-size"
+        oninput="setGrid('size',+this.value);document.getElementById('g-size-v').textContent=this.value+'px'">
+      <span class="val" id="g-size-v">55px</span>
+    </div>
+    <div class="grid-slider">
+      <label>Opacity</label>
+      <input type="range" min="0.05" max="1" value="0.6" step="0.05" id="g-opa"
+        oninput="setGrid('opacity',+this.value);document.getElementById('g-opa-v').textContent=Math.round(this.value*100)+'%'">
+      <span class="val" id="g-opa-v">60%</span>
+    </div>
+    <div class="grid-slider">
+      <label>Lines</label>
+      <input type="range" min="1" max="5" value="1" step="1" id="g-thick"
+        oninput="setGrid('thickness',+this.value);document.getElementById('g-thick-v').textContent=this.value+'px'">
+      <span class="val" id="g-thick-v">1px</span>
     </div>
   </div>
 
@@ -299,7 +388,18 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 <!-- ═══ LIBRARY TAB ═══ -->
 <div id="tab-library" class="tab-content">
 
-  <div class="upload" id="uploadZone">
+  <!-- Source tabs (SD card / USB) — small strip at the top -->
+  <div class="source-tabs" id="srcTabs"></div>
+
+  <!-- Collapsed upload bar — tap to expand, or drop files on it directly -->
+  <div class="upload-bar" id="uploadBar" onclick="toggleUpload()">
+    <div>
+      <div class="lbl">&#43; Upload Files</div>
+      <div class="hint">Tap, or drop files anywhere on this bar</div>
+    </div>
+    <span class="chev" id="uploadChev">&#9662;</span>
+  </div>
+  <div class="upload collapsed" id="uploadZone">
     <input type="file" id="fileInput" accept="image/*,video/*,audio/*" multiple
       onchange="uploadFiles(this.files)">
     <div class="lbl">Drop maps, videos, or audio here</div>
@@ -307,9 +407,8 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     <div class="pbar" id="pbar"><div class="fill" id="pfill"></div></div>
   </div>
 
-  <div class="source-tabs" id="srcTabs"></div>
-  <div class="breadcrumb" id="bc"></div>
-  <div style="margin-bottom:10px">
+  <div class="lib-toolbar">
+    <div class="breadcrumb" id="bc"></div>
     <button class="btn btn-sm" onclick="promptNewFolder()">&#128193; New Folder</button>
   </div>
   <div class="browser" id="browser"><div class="empty">Loading...</div></div>
@@ -332,6 +431,8 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 
 <!-- ═══ SETTINGS TAB ═══ -->
 <div id="tab-settings" class="tab-content">
+
+  <div class="section-h">Calibration</div>
 
   <!-- Display -->
   <div class="card">
@@ -408,27 +509,15 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     </div>
   </div>
 
-  <!-- Grid Calibration -->
+  <!-- Grid Calibration — size / opacity / lines moved to Table tab.
+       This card only handles the one-time "measure a 1-inch line" flow
+       and the grid origin offset. -->
   <div class="card">
     <div class="card-title">Grid Calibration</div>
-    <div class="row">
-      <label>Size</label>
-      <input type="range" min="20" max="200" value="55" step="1" id="g-size"
-        oninput="setGrid('size',+this.value);document.getElementById('g-size-v').textContent=this.value+'px'">
-      <span class="val" id="g-size-v">55px</span>
-    </div>
-    <div class="row">
-      <label>Lines</label>
-      <input type="range" min="1" max="5" value="1" step="1" id="g-thick"
-        oninput="setGrid('thickness',+this.value);document.getElementById('g-thick-v').textContent=this.value+'px'">
-      <span class="val" id="g-thick-v">1px</span>
-    </div>
-    <div class="row">
-      <label>Opacity</label>
-      <input type="range" min="0.05" max="1" value="0.6" step="0.05" id="g-opa"
-        oninput="setGrid('opacity',+this.value);document.getElementById('g-opa-v').textContent=Math.round(this.value*100)+'%'">
-      <span class="val" id="g-opa-v">60%</span>
-    </div>
+    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+      Adjust origin so the grid lines up with a physical reference (token, ruler, etc.).
+      Use the 1-inch calibration to map a measured length to PPI.
+    </p>
     <div class="row">
       <label>Offset X</label>
       <input type="range" min="0" max="200" value="0" step="1" id="g-ox"
@@ -441,6 +530,8 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
       <button class="btn btn-sm" onclick="startCal()">&#128207; Calibrate 1&quot; grid</button>
     </div>
   </div>
+
+  <div class="section-h">Maintenance</div>
 
   <!-- Update -->
   <div class="card">
@@ -835,15 +926,43 @@ function sysAction(action){
 
 /* ─── Upload ─── */
 var Z=document.getElementById('uploadZone');
+var UB=document.getElementById('uploadBar');
+
+function toggleUpload(force){
+  var expanded = (force === undefined) ? Z.classList.contains('collapsed') : !!force;
+  Z.classList.toggle('collapsed', !expanded);
+  Z.classList.toggle('expanded', expanded);
+  var chev=document.getElementById('uploadChev');
+  if(chev) chev.style.transform = expanded ? 'rotate(180deg)' : '';
+}
+
+/* Drop on the COLLAPSED bar = also upload (don't make the user expand first). */
+['dragenter','dragover'].forEach(function(ev){
+  UB.addEventListener(ev, function(e){e.preventDefault();UB.classList.add('dragover');toggleUpload(true)});
+});
+UB.addEventListener('dragleave', function(){UB.classList.remove('dragover')});
+UB.addEventListener('drop', function(e){
+  e.preventDefault();UB.classList.remove('dragover');
+  if(e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+});
+
+/* Same drop behaviour on the expanded zone itself. */
 Z.addEventListener('dragover',function(e){e.preventDefault();Z.classList.add('dragover')});
 Z.addEventListener('dragleave',function(){Z.classList.remove('dragover')});
 Z.addEventListener('drop',function(e){e.preventDefault();Z.classList.remove('dragover');
   if(e.dataTransfer.files.length)uploadFiles(e.dataTransfer.files)});
 
 function uploadFiles(files){
+  toggleUpload(true);  /* show progress bar */
   var bar=document.getElementById('pbar'),fill=document.getElementById('pfill'),i=0;
   function next(){
-    if(i>=files.length){bar.style.display='none';browseCur();return}
+    if(i>=files.length){
+      bar.style.display='none';
+      browseCur();
+      /* Auto-collapse once all uploads land so the file list comes back into view. */
+      setTimeout(function(){toggleUpload(false)}, 600);
+      return;
+    }
     bar.style.display='block';fill.style.width='0%';
     var form=new FormData();form.append('file',files[i]);form.append('folder',curPath);
     var xhr=new XMLHttpRequest();xhr.open('POST','/upload');
@@ -1041,20 +1160,30 @@ function renderPicker(data){
   el.innerHTML=out;
 }
 
+/* ─── Connection indicator ─── */
+function setConnState(online){
+  var dot=document.getElementById('connDot');
+  if(!dot) return;
+  dot.classList.toggle('offline', !online);
+  dot.title = online ? 'Connected' : 'Offline — control plane not reachable';
+}
+
 /* ─── Status ─── */
 function refreshStatus(){
   fetch('/status').then(function(r){return r.json()}).then(function(d){
-    /* Map card */
+    setConnState(true);
+
+    /* ── Map card ─────────────────────────────────────────── */
     var mapName=d.current;
-    var mapLabel=document.getElementById('mapLabel');
-    var curFile=document.getElementById('curFile');
+    var mapCard=document.getElementById('mapCard');
+    var mapStatus=document.getElementById('mapStatus');
     var mapBtns=document.getElementById('mapBtns');
     var mapMeta=document.getElementById('mapMeta');
+    mapCard.classList.toggle('is-playing', !!mapName);
     if(mapName){
-      mapLabel.textContent='';
-      curFile.textContent=mapName;
-      mapBtns.innerHTML='<button class="btn btn-stop btn-status" onclick="stopDisplay()">&#9632; Stop</button>';
-      /* File info */
+      mapStatus.classList.remove('empty');
+      mapStatus.textContent=mapName;
+      mapBtns.innerHTML='<button class="btn btn-stop btn-sm" onclick="stopDisplay()">&#9632; Stop</button>';
       var fi=d.file_info;
       if(fi){
         var parts=[];
@@ -1065,27 +1194,30 @@ function refreshStatus(){
       } else {
         mapMeta.innerHTML='';
       }
-    }else{
-      mapLabel.textContent='Nothing selected';
-      curFile.textContent='';
-      mapBtns.innerHTML='<button class="btn btn-status" onclick="openPicker(\'map\')">Select</button>';
+    } else {
+      mapStatus.classList.add('empty');
+      mapStatus.textContent='Nothing selected — tap title to choose';
+      mapBtns.innerHTML='';
       mapMeta.innerHTML='';
     }
-    /* Ambience card */
+
+    /* ── Ambience card ────────────────────────────────────── */
     var ambName=d.current_audio;
-    var ambLabel=document.getElementById('ambLabel');
-    var curAudio=document.getElementById('curAudio');
+    var ambCard=document.getElementById('ambCard');
+    var ambStatus=document.getElementById('ambStatus');
     var ambBtns=document.getElementById('ambBtns');
+    ambCard.classList.toggle('is-playing', !!ambName);
     if(ambName){
-      ambLabel.textContent='';
-      curAudio.textContent=ambName;
-      ambBtns.innerHTML='<button class="btn btn-stop btn-status" onclick="stopAudio()">&#9632; Stop</button>';
-    }else{
-      ambLabel.textContent='Nothing selected';
-      curAudio.textContent='';
-      ambBtns.innerHTML='<button class="btn btn-status" onclick="openPicker(\'ambient\')">Select</button>';
+      ambStatus.classList.remove('empty');
+      ambStatus.textContent=ambName;
+      ambBtns.innerHTML='<button class="btn btn-stop btn-sm" onclick="stopAudio()">&#9632; Stop</button>';
+    } else {
+      ambStatus.classList.add('empty');
+      ambStatus.textContent='Nothing selected — tap title to choose';
+      ambBtns.innerHTML='';
     }
-    /* Sync volume sliders (only when not muted, don't override slider position) */
+
+    /* ── Volume sliders (sync only when idle and not muted) ─ */
     if(d.volumes){
       var targets=['map','ambient','sfx'];
       for(var vi=0;vi<targets.length;vi++){
@@ -1101,21 +1233,32 @@ function refreshStatus(){
         }
       }
     }
-    /* Sync grid controls */
+
+    /* ── Grid controls (Table tab — Off / Squares / Hexes,
+         plus size / opacity / lines sliders) ─────────────── */
     if(d.grid){
       var g=d.grid;
+      var gridCard=document.getElementById('gridCard');
+      if(gridCard) gridCard.classList.toggle('disabled', !g.enabled);
       document.getElementById('g-none').classList.toggle('active',!g.enabled);
       document.getElementById('g-square').classList.toggle('active',g.enabled&&g.type==='square');
       document.getElementById('g-hex').classList.toggle('active',g.enabled&&g.type==='hex');
-      document.getElementById('g-color').value=g.color||'#000000';
+      var gc=document.getElementById('g-color');
+      if(gc) gc.value=g.color||'#000000';
       var gs=document.getElementById('g-size');
-      if(!gs.matches(':active')){gs.value=g.size;document.getElementById('g-size-v').textContent=g.size+'px'}
+      if(gs && !gs.matches(':active')){gs.value=g.size;document.getElementById('g-size-v').textContent=g.size+'px'}
       var gt=document.getElementById('g-thick');
-      if(!gt.matches(':active')){gt.value=g.thickness;document.getElementById('g-thick-v').textContent=g.thickness+'px'}
+      if(gt && !gt.matches(':active')){gt.value=g.thickness;document.getElementById('g-thick-v').textContent=g.thickness+'px'}
       var go=document.getElementById('g-opa');
-      if(!go.matches(':active')){go.value=g.opacity;document.getElementById('g-opa-v').textContent=Math.round(g.opacity*100)+'%'}
+      if(go && !go.matches(':active')){go.value=g.opacity;document.getElementById('g-opa-v').textContent=Math.round(g.opacity*100)+'%'}
+      /* Offset sliders (Settings tab) */
+      var gox=document.getElementById('g-ox');
+      if(gox && !gox.matches(':active')) gox.value=g.offset_x||0;
+      var goy=document.getElementById('g-oy');
+      if(goy && !goy.matches(':active')) goy.value=g.offset_y||0;
     }
-    /* Sync overscan controls (only when not actively calibrating) */
+
+    /* ── Overscan sliders (Settings tab) ──────────────────── */
     if(d.overscan && !_overscanActive){
       ['top','bottom','left','right'].forEach(function(k){
         var sl=document.getElementById('os-'+k);
@@ -1125,11 +1268,15 @@ function refreshStatus(){
         }
       });
     }
-    /* Sync splash theme highlight if it changed elsewhere (T key, etc.) */
+
+    /* ── Splash theme highlight (Styles tab) ──────────────── */
     if(d.splash_theme && d.splash_theme!==_currentSplashTheme){
       _currentSplashTheme=d.splash_theme;
       if(_splashThemes.length) renderThemes();
     }
+  }).catch(function(){
+    /* Network or server error — flag the dot, leave UI alone */
+    setConnState(false);
   });
 }
 function refreshSources(){
