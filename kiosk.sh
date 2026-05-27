@@ -25,7 +25,14 @@ except Exception:
     if [ -n "${DISPLAY_MODE}" ]; then
         OUTPUT=$(wlr-randr 2>/dev/null | awk '/^[A-Za-z]/ {print $1; exit}')
         if [ -n "${OUTPUT}" ]; then
-            wlr-randr --output "${OUTPUT}" --mode "${DISPLAY_MODE}" 2>/dev/null || true
+            # Try --mode first (validated against EDID); fall back to
+            # --custom-mode for refresh rates the TV won't advertise
+            # (e.g. 1080p@30 on bandwidth-limited HDMI links).  Without
+            # this fallback, cage starts at the EDID-preferred resolution
+            # and the display app's window is created at the wrong size.
+            wlr-randr --output "${OUTPUT}" --mode "${DISPLAY_MODE}" 2>/dev/null \
+              || wlr-randr --output "${OUTPUT}" --custom-mode "${DISPLAY_MODE}" 2>/dev/null \
+              || true
         fi
     fi
 fi
