@@ -446,8 +446,15 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
         <option>—</option>
       </select>
     </div>
+    <div class="row" style="margin-top:8px;gap:6px">
+      <input type="text" id="disp-custom" placeholder="1920x1080@30"
+        style="flex:1;font-size:0.85em;padding:6px;border:1px solid var(--border);
+        border-radius:6px;background:var(--bg);color:var(--text)">
+      <button class="btn btn-sm" onclick="setDisplayMode(document.getElementById('disp-custom').value.trim())">Force</button>
+    </div>
     <p style="font-size:0.75em;color:var(--text-dim);margin-top:8px">
       Changing the resolution restarts the display briefly. The TV will go black for about a second.
+      Use Force for refresh rates the TV doesn't advertise (e.g. 1080p@30 on bandwidth-limited HDMI links).
     </p>
   </div>
 

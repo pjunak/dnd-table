@@ -36,6 +36,7 @@ from files import ensure_default_folders
 from routes import register_routes
 import state
 import settings as settings_store
+import display_modes
 
 
 app = Flask(__name__)
@@ -88,5 +89,12 @@ if __name__ == "__main__":
     )
 
     atexit.register(_cleanup)
+
+    # Re-pin the user's saved display mode whenever cage drifts away from it
+    # (cold boot before cage is ready, HDMI hot-plug, EDID renegotiation).
+    # The TV in this build advertises 1280×720 as its preferred mode despite
+    # being a 1080p panel, so without this we'd let the framebuffer end up
+    # at 720p and get bilinear-blurred up to the panel.
+    display_modes.start_mode_watchdog(lambda: state.display_mode_pref)
 
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

@@ -129,18 +129,81 @@ def get_state() -> DisplayState:
     }
 
 
+_CUSTOM_MODE_RE = re.compile(r"^\d+x\d+@\d+(?:\.\d+)?$")
+
+
 def set_mode(mode: str) -> tuple[bool, str]:
-    """Set the first connected output to ``mode`` (e.g. ``1920x1080@60``)."""
+    """Set the first connected output to ``mode`` (e.g. ``1920x1080@60``).
+
+    Falls back to wlr-randr's ``--custom-mode`` when the requested mode
+    isn't in the EDID-advertised list — useful for forcing 30 Hz or
+    other refresh rates a misbehaving TV omits from its mode list.
+    The custom-mode path can still fail if the wlroots backend rejects
+    the timing (e.g. exceeds pixel-clock for the cable/link), in which
+    case we surface the wlr-randr error verbatim.
+    """
     state = get_state()
     if not state.get("available"):
         return False, state.get("error", "display state unavailable")
-    if mode not in state.get("modes", []):
-        return False, f"mode {mode!r} not supported by this output"
+    if not _CUSTOM_MODE_RE.match(mode):
+        return False, f"mode {mode!r} must be WIDTHxHEIGHT@HZ"
+
+    output = state["output"]
+    standard = mode in state.get("modes", [])
+    flag = "--mode" if standard else "--custom-mode"
     try:
-        result = _run("--output", state["output"], "--mode", mode)
+        result = _run("--output", output, flag, mode)
     except subprocess.TimeoutExpired:
         return False, "wlr-randr timed out"
     if result.returncode != 0:
         return False, result.stderr.strip() or "wlr-randr failed"
-    log.info("Display mode set to %s on %s", mode, state["output"])
+    log.info("Display mode set to %s on %s (%s)", mode, output, flag)
     return True, ""
+
+
+def start_mode_watchdog(get_preferred, interval_s: float = 20.0) -> None:
+    """Background thread that pins the output to the user's preferred mode.
+
+    Two failure modes this guards against:
+
+    1. Cold start — Flask comes up before cage has finished publishing the
+       Wayland socket.  Calls to ``wlr-randr`` fail until that happens.
+    2. HDMI hot-plug — when the TV is power-cycled, the link drops and
+       cage re-reads the EDID, which on some panels (notably this one)
+       advertises 1280×720 as the preferred mode even though the panel
+       is 1920×1080.  Cage applies the preferred mode, so the desktop
+       reverts to 720p and the framebuffer gets upscaled by the TV,
+       blurring single-pixel detail.
+
+    ``get_preferred`` is called every iteration so a fresh choice from
+    the control panel takes effect on the next tick rather than needing
+    a process restart.  Returning ``None`` (no preference saved) makes
+    the watchdog a no-op for that tick.
+    """
+    import threading
+    import time
+
+    def _loop():
+        # Give cage a moment to come up on a cold boot.  Longer than
+        # strictly necessary so we don't burn a retry storm trying to
+        # talk to a socket that doesn't exist yet.
+        time.sleep(3.0)
+        while True:
+            try:
+                want = get_preferred()
+                if want:
+                    st = get_state()
+                    if st.get("available") and st.get("current") != want:
+                        log.info(
+                            "Display drifted to %r; re-applying %r",
+                            st.get("current"), want,
+                        )
+                        ok, err = set_mode(want)
+                        if not ok:
+                            log.warning("Mode re-apply failed: %s", err)
+            except Exception:
+                log.exception("display mode watchdog tick failed")
+            time.sleep(interval_s)
+
+    t = threading.Thread(target=_loop, name="display-mode-watchdog", daemon=True)
+    t.start()
