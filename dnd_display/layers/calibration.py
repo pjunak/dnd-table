@@ -2,15 +2,22 @@
 Calibration overlay — shows safe-area guides while the user is dialling
 in overscan from the control panel.
 
-Two thin borders are drawn:
+Three visual layers, all driven from the same inset values:
 
-  - Red, at the absolute edge of the framebuffer.  If the TV crops the
-    picture, the red line ends up behind the bezel.  The user nudges
-    overscan inward until the red disappears completely.
-  - Green, just inside the current inset.  This is where actual content
-    will end up.  The user wants this just barely visible at the inside
-    edge of the TV's bezel — so the safe-area is as large as possible
-    without being clipped.
+  - Thin red line at the absolute framebuffer edge — fixed reference.
+    If the TV crops, this disappears behind the bezel, which is itself
+    diagnostic information ("the TV is eating pixels here").
+  - Semi-transparent red fill covering the area BETWEEN the framebuffer
+    edge and the current inset — the "discard zone" where content will
+    not be drawn.  Grows as the user increases an inset slider.
+  - Bright green line at the inset boundary — the actual safe-area edge,
+    where rendered content begins.  Moves as the user adjusts a slider.
+
+The fill makes the relationship between the two lines obvious: as the
+user widens an inset, the red band sweeps inward and the green line
+moves with it, so the slider has visible feedback on both colours
+(addressing the otherwise-confusing "only the green moves" UX where
+the FB-edge red is cropped behind the bezel and invisible).
 
 The layer is hidden the rest of the time.  Driven by the compositor's
 overscan state plus a single boolean from the SSE bridge.
@@ -33,9 +40,18 @@ void main() {
 }
 """
 
-# Two-tier border driven entirely by gl_FragCoord, so we don't have to
+# Border + fill driven entirely by gl_FragCoord, so we don't have to
 # resize any geometry on overscan changes — just pass the framebuffer
-# size and the current inset as uniforms.
+# size and the current inset as uniforms.  Render order inside the
+# shader (highest priority first):
+#
+#   1. FB-edge red line  (fixed, "physical edge" reference)
+#   2. Inset green line  (moves with sliders, "safe-area boundary")
+#   3. Discard-zone red fill (between FB edge and inset, semi-transparent)
+#
+# Cases 2 and 3 both grow/move as a slider increases, so the user sees
+# two simultaneously-changing visuals: the green line creeping inward
+# and the red band sweeping with it.
 _FRAG = """
 #version 330
 out vec4 f_color;
@@ -49,32 +65,39 @@ void main() {
     vec2 p = gl_FragCoord.xy;       // origin bottom-left, px units
     float t = max(1.0, u_thickness);
 
-    // ── Red: at the absolute edge of the framebuffer.
-    bool red = p.x < t
-            || p.y < t
-            || p.x > (u_fb_size.x - t)
-            || p.y > (u_fb_size.y - t);
-
-    // ── Green: just inside the inset.  Note GL bottom-left origin —
+    // Inset rectangle (the safe area).  GL has bottom-left origin —
     // "top" inset cuts the top of the screen (higher y), "bottom" the
     // bottom (lower y).
     float gx_lo = u_inset.z;                  // left
     float gx_hi = u_fb_size.x - u_inset.w;    // right
     float gy_lo = u_inset.y;                  // bottom
     float gy_hi = u_fb_size.y - u_inset.x;    // top
-    bool green_horiz =
-        (p.y >= gy_lo && p.y < gy_lo + t) ||
-        (p.y <= gy_hi && p.y > gy_hi - t);
-    bool green_vert =
-        (p.x >= gx_lo && p.x < gx_lo + t) ||
-        (p.x <= gx_hi && p.x > gx_hi - t);
-    bool green = (green_horiz && p.x >= gx_lo && p.x <= gx_hi) ||
-                 (green_vert  && p.y >= gy_lo && p.y <= gy_hi);
 
-    if (red) {
+    bool inside_inset = p.x >= gx_lo && p.x <= gx_hi
+                     && p.y >= gy_lo && p.y <= gy_hi;
+
+    // ── FB-edge red line (fixed): often hidden behind TV bezel.
+    bool red_edge = p.x < t || p.x > (u_fb_size.x - t)
+                 || p.y < t || p.y > (u_fb_size.y - t);
+
+    // ── Green line at the inset boundary (moves with sliders).
+    //    Only drawn on the inside-inset side of the boundary so it
+    //    stays clearly visible against the red fill outside.
+    bool green_line = inside_inset
+        && (p.x < gx_lo + t || p.x > gx_hi - t
+         || p.y < gy_lo + t || p.y > gy_hi - t);
+
+    if (red_edge) {
+        // 1-2 px hard-red at the framebuffer edge.
         f_color = vec4(1.0, 0.20, 0.20, u_opacity);
-    } else if (green) {
+    } else if (green_line) {
         f_color = vec4(0.25, 1.0, 0.30, u_opacity);
+    } else if (!inside_inset) {
+        // Anywhere outside the inset rectangle: tint red to show the
+        // user the actual width of the discard band.  Stays out of
+        // the way of content (low alpha) while still being obvious
+        // when the inset changes.
+        f_color = vec4(1.0, 0.30, 0.30, u_opacity * 0.35);
     } else {
         discard;
     }
