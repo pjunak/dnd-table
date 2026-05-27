@@ -87,7 +87,10 @@ def get_state() -> DisplayState:
 
     output: Optional[str] = None
     current: Optional[str] = None
-    modes: List[str] = []
+    # Keep w/h/hz alongside the mode string so we can sort the list
+    # before returning — TVs often list 720p ahead of 1080p in EDID
+    # order, which is confusing in a dropdown labelled "Resolution".
+    mode_entries: list[tuple[int, int, int, str]] = []
     seen: set[str] = set()
 
     for line in result.stdout.splitlines():
@@ -100,17 +103,23 @@ def get_state() -> DisplayState:
             continue
         m = _MODE_RE.match(line)
         if m and output is not None:
-            w, h, hz = m.group(1), m.group(2), m.group(3)
+            w, h, hz = int(m.group(1)), int(m.group(2)), int(round(float(m.group(3))))
             flags = m.group(4) or ""
-            mode = f"{w}x{h}@{int(round(float(hz)))}"
+            mode = f"{w}x{h}@{hz}"
             if mode not in seen:
                 seen.add(mode)
-                modes.append(mode)
+                mode_entries.append((w, h, hz, mode))
             if "current" in flags:
                 current = mode
 
     if output is None:
         return {"available": False, "error": "no connected output"}
+
+    # Highest resolution first, then highest refresh rate; "Resolution"
+    # dropdown reads top-down, so the max-quality option should land at
+    # the top.
+    mode_entries.sort(key=lambda e: (e[0], e[1], e[2]), reverse=True)
+    modes = [e[3] for e in mode_entries]
 
     return {
         "available": True,

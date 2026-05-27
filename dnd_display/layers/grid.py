@@ -97,10 +97,15 @@ void main() {
         float dist_to_edge = R * HALF_SQRT3 - farthest;
         on = abs(dist_to_edge) < half_t;
     } else {
-        // Square grid.
-        vec2 m = mod(p, u_size);
-        on = m.x < half_t || m.y < half_t
-          || m.x > (u_size - half_t) || m.y > (u_size - half_t);
+        // Square grid.  ``gl_FragCoord`` lands at integer + 0.5 (pixel
+        // centres), so a naive ``mod(p, size) < half_t`` with half_t = 0.5
+        // never fires — a 1-pixel grid would render as nothing.  Bias by
+        // -0.5 so grid lines align to pixel columns, then light up
+        // ``u_thickness`` consecutive pixels per line.  That yields
+        // exactly the requested visual thickness (1px draws 1px,
+        // 2px draws 2px, etc.) with no off-by-half ghosts.
+        vec2 m = mod(p - vec2(0.5), u_size);
+        on = m.x < u_thickness || m.y < u_thickness;
     }
 
     if (!on) discard;
