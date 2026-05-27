@@ -40,6 +40,9 @@ import settings as settings_store
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+# Reject uploads larger than 4 GB so a single bad request can't fill the
+# SD card.  Tweak in config.py if you regularly host bigger map videos.
+app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024
 register_routes(app)
 
 

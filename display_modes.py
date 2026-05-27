@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import pwd
 import re
 import subprocess
 from typing import List, Optional, TypedDict
@@ -21,11 +22,30 @@ from typing import List, Optional, TypedDict
 log = logging.getLogger(__name__)
 
 
-# The cage session always runs as uid 1000 / wayland-0 (single-user kiosk).
-_WAYLAND_ENV = {
-    "XDG_RUNTIME_DIR": "/run/user/1000",
-    "WAYLAND_DISPLAY": "wayland-0",
-}
+_KIOSK_USER = "dndtable"
+
+
+def _wayland_env() -> dict[str, str]:
+    """Build the env vars wlr-randr needs to find the cage Wayland socket.
+
+    The Flask service runs as ``dndtable`` (per ``dnd-table.service``)
+    and so does cage (per ``greetd-config.toml``), but Flask is launched
+    by systemd without the graphical-session env vars — so we have to
+    point ``XDG_RUNTIME_DIR`` at /run/user/<uid> explicitly.  The UID
+    is looked up rather than hardcoded so the install survives if the
+    dndtable user ends up with a non-1000 uid (e.g., reinstall on a
+    multi-user box).
+    """
+    try:
+        uid = pwd.getpwnam(_KIOSK_USER).pw_uid
+    except KeyError:
+        # Fallback to the current user — the Flask service runs as
+        # dndtable anyway, so its own uid is the right answer.
+        uid = os.getuid()
+    return {
+        "XDG_RUNTIME_DIR": f"/run/user/{uid}",
+        "WAYLAND_DISPLAY": "wayland-0",
+    }
 
 
 class DisplayState(TypedDict, total=False):
@@ -38,7 +58,7 @@ class DisplayState(TypedDict, total=False):
 
 def _run(*args: str, timeout: float = 5.0) -> subprocess.CompletedProcess:
     env = os.environ.copy()
-    env.update(_WAYLAND_ENV)
+    env.update(_wayland_env())
     return subprocess.run(
         ["wlr-randr", *args],
         capture_output=True, text=True, timeout=timeout, env=env,

@@ -34,16 +34,51 @@ log = logging.getLogger(__name__)
 
 # ─── SSE pub-sub for the native display app ──────────────────────
 
+# Per-event-type coalescing: high-frequency UI events (overscan drag,
+# grid sliders) get drained before the new one is pushed, so a slow
+# consumer can't queue up dozens of intermediate states.
+_COALESCING_EVENTS = frozenset({"overscan", "grid", "volume"})
+
 _display_clients = []
 _clients_lock = threading.Lock()
 
 
+def _drain_coalesced(q: "queue.Queue", event_type: str) -> None:
+    """Remove pending events of the same coalescing type from a client queue.
+
+    Called under ``_clients_lock`` so the queue isn't being mutated by
+    another broadcast while we filter.  Cheap: max queue size is small.
+    """
+    if event_type not in _COALESCING_EVENTS:
+        return
+    keep = []
+    try:
+        while True:
+            keep.append(q.get_nowait())
+    except queue.Empty:
+        pass
+    needle = f'"type": "{event_type}"'
+    for item in keep:
+        if needle in item:
+            continue  # drop stale state of the same type
+        try:
+            q.put_nowait(item)
+        except queue.Full:
+            break
+
+
 def broadcast(event_type, data=None):
-    """Push an event to all connected display clients via SSE."""
+    """Push an event to all connected display clients via SSE.
+
+    For high-frequency events (overscan / grid / volume drag) we
+    drain stale instances first so the consumer always lands on the
+    latest value instead of replaying intermediate slider positions.
+    """
     msg = json.dumps({"type": event_type, **(data or {})})
     with _clients_lock:
         dead = []
         for q in _display_clients:
+            _drain_coalesced(q, event_type)
             try:
                 q.put_nowait(msg)
             except queue.Full:
@@ -52,8 +87,15 @@ def broadcast(event_type, data=None):
             _display_clients.remove(q)
 
 
-def _persist():
-    """Save current persistent state to disk."""
+# ─── Persistence (coalesced) ─────────────────────────────────────
+
+_persist_timer: "threading.Timer | None" = None
+_persist_lock = threading.Lock()
+_PERSIST_DEBOUNCE_S = 0.5
+
+
+def _persist_now():
+    """Snapshot current state to disk.  Called from the debounce timer."""
     data = {
         "grid": {k: v for k, v in state.grid_state.items() if k != "calibration_mode"},
         "overscan": {k: v for k, v in state.overscan_state.items() if k != "calibration"},
@@ -70,6 +112,41 @@ def _persist():
         },
     }
     settings_store.save(data)
+
+
+def _persist():
+    """Debounced save — coalesces bursts of slider/calibration updates
+    into one disk write 500 ms after the last change."""
+    global _persist_timer
+    with _persist_lock:
+        if _persist_timer is not None:
+            _persist_timer.cancel()
+        _persist_timer = threading.Timer(_PERSIST_DEBOUNCE_S, _persist_now)
+        _persist_timer.daemon = True
+        _persist_timer.start()
+
+
+# ─── Path safety ─────────────────────────────────────────────────
+
+def _path_in_allowed_roots(p: Path) -> bool:
+    """True iff ``p`` resolves to a file under a browsable source root.
+
+    Browsable sources = the SD-card upload dir + any currently-mounted
+    USB drive (as enumerated by ``files.get_source_roots()``).  The
+    play / serve endpoints all defer here so a malicious POST can't
+    point GStreamer / MPV / send_file at arbitrary filesystem paths.
+    """
+    try:
+        resolved = p.resolve()
+    except OSError:
+        return False
+    for root in get_source_roots().values():
+        try:
+            resolved.relative_to(root.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
 
 
 def _rgb_to_hex(t):
@@ -193,15 +270,7 @@ def register_routes(app):
         p = Path(filepath)
         if not p.exists() or not p.is_file():
             return "Not found", 404
-        allowed = False
-        for d in MEDIA_DIRS.values():
-            try:
-                p.resolve().relative_to(d.resolve())
-                allowed = True
-                break
-            except ValueError:
-                continue
-        if not allowed:
+        if not _path_in_allowed_roots(p):
             return "Forbidden", 403
         return send_file(str(p), conditional=True)
 
@@ -297,31 +366,41 @@ def register_routes(app):
 
     @app.route("/play", methods=["POST"])
     def play():
-        data = request.get_json()
+        data = request.get_json() or {}
         filepath = Path(data.get("path", ""))
         if not filepath.exists():
             return jsonify(error="File not found"), 404
+        if not _path_in_allowed_roots(filepath):
+            return jsonify(error="Forbidden"), 403
         _play_on_display(filepath)
         return jsonify(status="playing", filename=filepath.name)
 
     @app.route("/play_audio", methods=["POST"])
     def play_audio_route():
-        data = request.get_json()
+        data = request.get_json() or {}
         filepath = Path(data.get("path", ""))
         if not filepath.exists():
             return jsonify(error="File not found"), 404
+        if not _path_in_allowed_roots(filepath):
+            return jsonify(error="Forbidden"), 403
         play_audio(filepath)
         return jsonify(status="playing", filename=filepath.name)
 
     @app.route("/play_folder", methods=["POST"])
     def play_folder():
-        data = request.get_json()
+        data = request.get_json() or {}
         rel_path = data.get("path", "")
         source = data.get("source", "sdcard")
+        if ".." in rel_path or rel_path.startswith("/"):
+            return jsonify(error="Invalid path"), 400
         roots = get_source_roots()
         if source not in roots:
             return jsonify(error="Source not found"), 404
-        target = roots[source] / rel_path
+        target = (roots[source] / rel_path).resolve()
+        try:
+            target.relative_to(roots[source].resolve())
+        except ValueError:
+            return jsonify(error="Forbidden"), 403
         if not target.is_dir():
             return jsonify(error="Not a folder"), 404
         for f in sorted(target.iterdir()):

@@ -1,8 +1,11 @@
 """
-DnD Table – Media helpers.
+DnD Table – Media helpers (Flask-side).
 
-Audio (ambient) playback via MPV subprocess.
-Video and image display is handled by the Chromium display page.
+Ambient audio is played by a headless MPV subprocess and its volume is
+nudged via the JSON IPC socket at ``MPV_AUDIO_SOCKET``.  Video and
+image display is *not* handled here — those flow as SSE ``play`` /
+``stop`` events to the native ``dnd_display`` Wayland app, which feeds
+them through GStreamer into a moderngl texture.
 """
 
 import logging

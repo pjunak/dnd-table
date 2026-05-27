@@ -62,11 +62,21 @@ class DndDisplay(pyglet.window.Window):
             depth_size=24, double_buffer=True,
             sample_buffers=1, samples=4,
         )
-        super().__init__(
-            fullscreen=True, vsync=True, config=config,
-            caption="DnD Display",
-        )
-        self.set_mouse_visible(False)
+        # DND_WINDOWED=1 opens a regular 1280×720 window instead of
+        # fullscreen — useful for dev runs on a workstation where you
+        # don't want the app to take over the whole display.
+        windowed = os.environ.get("DND_WINDOWED") == "1"
+        if windowed:
+            super().__init__(
+                width=1280, height=720, vsync=True, config=config,
+                caption="DnD Display (windowed)", resizable=True,
+            )
+        else:
+            super().__init__(
+                fullscreen=True, vsync=True, config=config,
+                caption="DnD Display",
+            )
+            self.set_mouse_visible(False)
 
         self.ctx = moderngl.create_context(require=330)
         info = self.ctx.info
