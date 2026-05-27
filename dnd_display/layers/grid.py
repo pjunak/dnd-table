@@ -101,11 +101,18 @@ void main() {
         // centres), so a naive ``mod(p, size) < half_t`` with half_t = 0.5
         // never fires — a 1-pixel grid would render as nothing.  Bias by
         // -0.5 so grid lines align to pixel columns, then light up
-        // ``u_thickness`` consecutive pixels per line.  That yields
-        // exactly the requested visual thickness (1px draws 1px,
-        // 2px draws 2px, etc.) with no off-by-half ghosts.
+        // ``u_thickness`` consecutive pixels per line.
+        //
+        // The second pair of comparisons (m > u_size - FP_EPS) catches a
+        // failure mode that left visible gaps in the rendered grid: at
+        // exact line positions, the GPU's ``mod(N * u_size, u_size)``
+        // sometimes returns ``u_size − ε`` instead of ``0`` due to float
+        // rounding inside the ``a − b * floor(a/b)`` lowering.  Without
+        // the wrap-around guard, those columns silently disappear.
         vec2 m = mod(p - vec2(0.5), u_size);
-        on = m.x < u_thickness || m.y < u_thickness;
+        float FP_EPS = 0.05;
+        on = m.x < u_thickness || m.y < u_thickness
+          || m.x > u_size - FP_EPS || m.y > u_size - FP_EPS;
     }
 
     if (!on) discard;
