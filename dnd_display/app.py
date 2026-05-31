@@ -26,7 +26,6 @@ import moderngl                       # noqa: E402
 from .compositor import Compositor    # noqa: E402
 from .layers import (                 # noqa: E402
     CalibrationLayer,
-    DebugTriangleLayer,
     GridLayer,
     SplashLayer,
     VideoLayer,
@@ -49,7 +48,6 @@ log = logging.getLogger(__name__)
 #   300  tokens       — sprites (future)
 #   400  vfx          — fog / lighting / weather (future)
 #   500  splash       — D20 splash; visible whenever nothing is playing
-#   900  debug        — dev-only overlays
 #   950  calibration  — red/green safe-area guides (only while calibrating)
 
 
@@ -91,15 +89,11 @@ class DndDisplay(pyglet.window.Window):
         self.video = VideoLayer(z_order=100)
         self.grid = GridLayer(z_order=200)
         self.splash = SplashLayer(z_order=500)
-        self.debug = DebugTriangleLayer(z_order=900)
-        self.debug.opacity = 0.0
-        self.debug.visible = False
         self.calibration = CalibrationLayer(z_order=950)
 
         self.compositor.add(self.video)
         self.compositor.add(self.grid)
         self.compositor.add(self.splash)
-        self.compositor.add(self.debug)
         self.compositor.add(self.calibration)
         self.calibration.set_framebuffer_size(self.width, self.height)
 
@@ -175,6 +169,26 @@ class DndDisplay(pyglet.window.Window):
         self._current_file_path = None
         self.video.stop()
         self._update_splash_visibility()
+
+    def show_test_pattern(self) -> None:
+        """Show SMPTE colour bars on the video layer (display diagnostic).
+
+        Exposed from the panel as Settings → Display Test.  Replaces
+        whatever the video layer was showing; ``stop_test_pattern``
+        restores the previous scene.
+        """
+        log.info("Showing test pattern")
+        self.video.play_test_pattern("smpte")
+        self.splash.hide()
+
+    def stop_test_pattern(self) -> None:
+        """Hide the test pattern and restore the previous scene."""
+        log.info("Stopping test pattern")
+        if self._current_file_path:
+            self.video.play_file(self._current_file_path)
+        else:
+            self.video.stop()
+            self._update_splash_visibility()
 
     def set_grid_state(self, st: dict) -> None:
         """Forward a grid_state dict from Flask to the GridLayer."""
@@ -294,6 +308,13 @@ def _dispatch_event(window: "DndDisplay", data: dict) -> None:
 
     if evt == "stop":
         schedule(window.stop_playback)
+        return
+
+    if evt == "test_pattern":
+        if data.get("on"):
+            schedule(window.show_test_pattern)
+        else:
+            schedule(window.stop_test_pattern)
         return
 
     if evt == "grid":

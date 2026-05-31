@@ -458,6 +458,18 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     </p>
   </div>
 
+  <!-- Display Test -->
+  <div class="card">
+    <div class="card-title">Display Test</div>
+    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+      Show SMPTE colour bars on the table to check the HDMI link, colour, and
+      geometry without loading a file. Tap again to return to the current scene.
+    </p>
+    <div class="row">
+      <button class="btn btn-sm" id="btn-testpat" onclick="toggleTestPattern()">Show Test Pattern</button>
+    </div>
+  </div>
+
   <!-- Safe Area -->
   <div class="card">
     <div class="card-title">Safe Area</div>
@@ -560,6 +572,15 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
       <button class="btn btn-sm btn-stop" onclick="sysAction('shutdown')">Shut Down</button>
     </div>
     <p id="sys-msg" style="font-size:0.75em;color:var(--text-dim);margin-top:6px;display:none"></p>
+  </div>
+
+  <!-- Network -->
+  <div class="card">
+    <div class="card-title">Network</div>
+    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:6px">
+      Open the control panel from any device on the same network at:
+    </p>
+    <div id="net-addrs" style="font-size:0.9em;color:var(--text);font-family:monospace;line-height:1.6">Loading…</div>
   </div>
 
 </div>
@@ -883,13 +904,13 @@ function checkUpdate(){
     }
     _updateData=d;
     status.innerHTML='Update available: <b>'+d.current+'</b> → <b>'+d.latest+'</b>';
-    status.style.color='var(--accent)';
+    status.style.color='var(--gold)';
     applyBtn.style.display='';
     if(d.commits&&d.commits.length){
       var h='<div style="font-size:0.75em;color:var(--text-dim);max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px">';
       for(var i=0;i<d.commits.length;i++){
         var c=d.commits[i];
-        h+='<div style="margin-bottom:3px"><span style="color:var(--accent);font-family:monospace">'+_escHtml(c.hash)+'</span> '+_escHtml(c.subject)+' <span style="opacity:0.5">'+_escHtml(c.date)+'</span></div>';
+        h+='<div style="margin-bottom:3px"><span style="color:var(--gold);font-family:monospace">'+_escHtml(c.hash)+'</span> '+_escHtml(c.subject)+' <span style="opacity:0.5">'+_escHtml(c.date)+'</span></div>';
       }
       h+='</div>';
       commits.innerHTML=h;commits.style.display='block';
@@ -914,7 +935,7 @@ function applyUpdate(){
       return;
     }
     status.textContent='Update applied! Service restarting…';
-    status.style.color='var(--accent)';
+    status.style.color='var(--gold)';
     btn.style.display='none';
     toast('Update applied, restarting…');
   }).catch(function(){
@@ -929,6 +950,32 @@ function sysAction(action){
   msg.textContent=labels[action]||'…';
   msg.style.display='block';
   api('/system',{action:action});
+}
+
+/* ─── Display Test ─── */
+var _testPatternOn=false;
+function toggleTestPattern(){
+  _testPatternOn=!_testPatternOn;
+  var btn=document.getElementById('btn-testpat');
+  if(btn){
+    btn.textContent=_testPatternOn?'Hide Test Pattern':'Show Test Pattern';
+    btn.classList.toggle('active',_testPatternOn);
+  }
+  api('/api/display/test',{on:_testPatternOn});
+  toast(_testPatternOn?'Test pattern on':'Test pattern off');
+}
+
+/* ─── Network addresses ─── */
+function refreshIps(){
+  fetch('/api/ips').then(function(r){return r.json()}).then(function(d){
+    var el=document.getElementById('net-addrs');
+    if(!el) return;
+    var ips=d.ips||[];
+    if(!ips.length){el.textContent='No network address detected';return}
+    el.innerHTML=ips.map(function(ip){return 'http://'+_escHtml(ip)+':5000'}).join('<br>');
+  }).catch(function(){
+    var el=document.getElementById('net-addrs'); if(el) el.textContent='Unavailable';
+  });
 }
 
 /* ─── Upload ─── */
@@ -1297,7 +1344,7 @@ function refreshSources(){
   });
 }
 
-refreshStatus();refreshSources();refreshDisplayModes();refreshThemes();browseFolder('sdcard','');
+refreshStatus();refreshSources();refreshDisplayModes();refreshThemes();refreshIps();browseFolder('sdcard','');
 setInterval(refreshStatus,5000);setInterval(refreshSources,10000);
 </script>
 </body></html>

@@ -71,7 +71,7 @@ The control panel auto-loads at `http://dndtable.local` from any device on the s
 - **Table tab** — pick a Map, an Ambience, adjust volumes, toggle the grid
 - **Library tab** — upload / rename / delete files on the SD card; browse USB drives
 - **Styles tab** — pick a splash theme; preview swatches show face / rune / rim colors over the theme's actual backdrop
-- **Settings tab** — pick display mode, calibrate safe area + grid DPI, check for updates, reboot/shutdown
+- **Settings tab** — pick display mode, run a display test pattern, calibrate safe area + grid DPI, see the device's network addresses, check for updates, reboot/shutdown
 
 ### Keys at the table (USB keyboard)
 
@@ -139,6 +139,7 @@ It'll appear in the Styles tab automatically (the panel reads from `/api/splash/
 | Panel shows old theme after pressing T at the table | T is local-only; the panel learns on its next `/status` poll | Wait 5 s or tap any other control |
 | SSE not connecting | Flask not up, or firewall on loopback | `sudo journalctl -u dnd-table.service -n 50` |
 | Video plays silently | Audio sink isn't wired in the video pipeline yet | This is by design for v1; ambient is a separate MPV track |
+| Not sure if a glitch is the TV or the app | — | **Settings → Display Test** shows SMPTE bars straight from GStreamer; if they look wrong too, it's the TV / HDMI link, not the media |
 
 ## Project status
 

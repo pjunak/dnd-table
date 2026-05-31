@@ -4,7 +4,7 @@ dnd_display — native Wayland display app for the DnD table.
 Launched by cage (via ``kiosk.sh``) as the single fullscreen Wayland
 client.  Subscribes to Flask's SSE stream on ``/display/stream`` for
 state, runs a GStreamer pipeline for video / images, and composites
-layers (video / grid / splash / calibration / debug) through a moderngl
+layers (video / grid / splash / calibration) through a moderngl
 context.
 
 Public entry point: ``python -m dnd_display`` → ``dnd_display.app.main``.

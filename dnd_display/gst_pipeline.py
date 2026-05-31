@@ -73,7 +73,9 @@ class VideoPipeline:
         self._adopt(pipeline, source_desc=f"file:{path}")
 
     def play_test_pattern(self, pattern: str = "smpte") -> None:
-        """Play a videotestsrc pattern.  Used during bring-up to verify
+        """Play a videotestsrc pattern (SMPTE bars by default).
+
+        Surfaced in the panel as Settings → Display Test; also verifies
         the GStreamer→texture path end-to-end without needing a file."""
         pipeline = self._build_testsrc_pipeline(pattern)
         if pipeline is None:

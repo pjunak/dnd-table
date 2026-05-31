@@ -1,10 +1,9 @@
 """
 Splash layer — animated 3D D20 with Elder Futhark runes.
 
-Replaces the old canvas-based splash. Designed to be extended:
+Designed to be extended:
 - Future: "roll" animation that lands on a target face
-- Future: particle effects when a critical hits
-- Future: theme palettes (vendor cycles, fire, ice, …)
+- Future: particle effects on a critical hit
 
 Visual recipe:
 - Dark vignetted backdrop drawn first (covers underlying layers when shown)
@@ -26,12 +25,7 @@ from pyglet.math import Mat4, Vec3
 from ..compositor import Layer
 from ..mesh import build_icosahedron_buffer
 from ..rune_atlas import build_rune_atlas, RUNE_ATLAS_COLS, RUNE_ATLAS_ROWS
-from ..themes import (
-    SplashTheme, THEMES, DEFAULT_THEME,
-    RUNE_EFFECT_FLAMING, RUNE_EFFECT_LIGHTNING, RUNE_EFFECT_SOLID,
-    FACE_EFFECT_CRACKED_STONE, FACE_EFFECT_MOSSY_STONE, FACE_EFFECT_SMOOTH,
-    get as get_theme,
-)
+from ..themes import SplashTheme, DEFAULT_THEME, get as get_theme
 
 log = logging.getLogger(__name__)
 

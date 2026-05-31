@@ -131,14 +131,14 @@ def check_for_update():
 def _ensure_venv():
     """Recreate the install-dir venv if missing and refresh requirements.
 
-    Mirrors steps 6 of install.sh.  The Flask service runs as the
+    Mirrors step 6 of install.sh.  The Flask service runs as the
     ``dndtable`` user, which owns /opt/dnd-table, so no sudo is needed
     here to write into the install directory.
 
-    Returns (ok: bool, err: str).  Errors aren't fatal callers (it's
-    the caller's job to decide), but a False return means the next
-    service restart will fail because kiosk.sh / dnd-table.service
-    both expect /opt/dnd-table/.venv/bin/python.
+    Returns (ok, err) and never raises — failure is reported via the
+    bool.  ``apply_update`` treats a False return as fatal, since the
+    next service restart would fail anyway: both kiosk.sh and
+    dnd-table.service expect /opt/dnd-table/.venv/bin/python.
     """
     venv_dir = os.path.join(INSTALL_DIR, ".venv")
     venv_python = os.path.join(venv_dir, "bin", "python")

@@ -600,6 +600,18 @@ def register_routes(app):
         subprocess.Popen(["sudo", "systemctl", "restart", "greetd.service"])
         return jsonify(ok=True, mode=mode)
 
+    @app.route("/api/display/test", methods=["POST"])
+    def api_display_test():
+        """Toggle the on-screen SMPTE test pattern (display diagnostic).
+
+        Broadcast over SSE to the native display app; ``on=false``
+        restores whatever was playing before.
+        """
+        data = request.get_json() or {}
+        on = bool(data.get("on"))
+        broadcast("test_pattern", {"on": on})
+        return jsonify(ok=True, on=on)
+
     # ─── Splash theme ────────────────────────────────────────────
 
     @app.route("/api/splash/themes", methods=["GET"])

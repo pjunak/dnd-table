@@ -1,9 +1,9 @@
 """
-Video layer — fullscreen textured quad fed by a GStreamer pipeline.
+Video layer — textured quad fed by a GStreamer pipeline.
 
 The texture is uploaded once per frame from the latest decoded RGBA
-buffer. Stretching to fullscreen for v0; aspect-correct letterboxing
-will land alongside the safe-area inset support.
+buffer and drawn aspect-correct (letterboxed / pillarboxed) inside the
+compositor's safe-area inset viewport.
 """
 
 from __future__ import annotations
@@ -81,6 +81,7 @@ class VideoLayer(Layer):
         self.visible = True
 
     def play_test_pattern(self, pattern: str = "smpte") -> None:
+        """Show a GStreamer test pattern (Settings → Display Test)."""
         self._pipeline.play_test_pattern(pattern)
         self.visible = True
 
