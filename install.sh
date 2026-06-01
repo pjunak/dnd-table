@@ -40,6 +40,7 @@ sudo apt-get install -y \
     libglvnd-dev \
     pipewire pipewire-pulse wireplumber \
     mpv ffmpeg \
+    libmpv2 python3-mpv python3-websocket \
     iptables avahi-daemon \
     git rsync curl \
     greetd cage xwayland \
@@ -47,7 +48,7 @@ sudo apt-get install -y \
     wlr-randr wayland-utils grim \
     unattended-upgrades
 
-# ── 3. User groups (video/render/input for KMS + libinput, audio for mpv) ─
+# ── 3. User groups (video/render/input for KMS + libinput, audio for music output) ─
 echo "==> Adding ${USER_NAME} to video, render, input, audio groups..."
 sudo usermod -aG video,render,input,audio "${USER_NAME}"
 
@@ -79,28 +80,53 @@ fi
 
 # ── 7. Media directories ─────────────────────────────────────────
 echo "==> Creating media directories..."
-sudo mkdir -p "${MEDIA_DIR}/Maps" "${MEDIA_DIR}/Videos" "${MEDIA_DIR}/Ambient" "${MEDIA_DIR}/SFX"
+sudo mkdir -p "${MEDIA_DIR}/Maps" "${MEDIA_DIR}/Videos"
 sudo chown -R "${USER_NAME}:${USER_NAME}" "${MEDIA_DIR}"
 
 # ── 8. Persistent settings dir ───────────────────────────────────
 sudo -u "${USER_NAME}" mkdir -p "${USER_HOME}/dnd-display"
 
-# ── 9. greetd config — autologin into cage ─────────────────────
+# ── 9. Headless music output (pjunak/music) ──────────────────────
+# The table acts as a remote audio output of music.junak.eu: a small
+# guest client follows the server's playback over a WebSocket and plays
+# it through mpv, exposing a localhost control surface the Flask panel
+# proxies.  Downloaded from the upstream repo so it tracks future fixes.
+echo "==> Installing headless music output client..."
+sudo mkdir -p /opt/music-output
+sudo curl -fsSL \
+    https://raw.githubusercontent.com/pjunak/music/main/clients/headless/music_output.py \
+    -o /opt/music-output/music_output.py
+sudo chown -R "${USER_NAME}:${USER_NAME}" /opt/music-output
+# Config — written only if absent so a hand-edited server URL survives
+# re-runs.  XDG_RUNTIME_DIR lets the system service reach the dndtable
+# session's PipeWire socket (audio group is the ALSA fallback).
+if [ ! -f /etc/music-output.env ]; then
+    sudo tee /etc/music-output.env > /dev/null <<EOF
+MUSIC_SERVER_URL=https://music.junak.eu
+MUSIC_OUTPUT_NAME=DnD Table
+MUSIC_CONTROL_PORT=8731
+XDG_RUNTIME_DIR=/run/user/$(id -u "${USER_NAME}")
+EOF
+fi
+sudo cp "${INSTALL_DIR}/system/music-output.service" /etc/systemd/system/
+
+# ── 10. greetd config — autologin into cage ────────────────────
 echo "==> Configuring greetd..."
 if [ ! -f "${GREETD_BACKUP}" ] && [ -f /etc/greetd/config.toml ]; then
     sudo cp /etc/greetd/config.toml "${GREETD_BACKUP}"
 fi
 sudo install -m 644 "${INSTALL_DIR}/system/greetd-config.toml" /etc/greetd/config.toml
 
-# ── 10. Disable getty@tty1 so greetd owns vt1 ────────────────────
+# ── 11. Disable getty@tty1 so greetd owns vt1 ────────────────────
 sudo systemctl disable --now getty@tty1.service 2>/dev/null || true
 
-# ── 11. Install + enable systemd service ─────────────────────────
-echo "==> Installing dnd-table.service..."
+# ── 12. Install + enable systemd services ────────────────────────
+echo "==> Installing dnd-table.service + music-output.service..."
 sudo cp "${INSTALL_DIR}/dnd-table.service" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable avahi-daemon greetd dnd-table.service
+sudo systemctl enable avahi-daemon greetd dnd-table.service music-output.service
 sudo systemctl restart dnd-table.service || true
+sudo systemctl restart music-output.service || true
 
 echo ""
 echo "==> Done."

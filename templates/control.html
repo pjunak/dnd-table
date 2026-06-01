@@ -86,8 +86,6 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 .status-line{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
 .status-line strong{color:var(--gold)}
 .map-strong{color:var(--green) !important}
-.audio-strong{color:var(--purple) !important}
-.sfx-strong{color:var(--orange) !important}
 
 /* File info meta */
 .file-meta{font-size:0.7em;color:var(--text-dim);line-height:1.4;margin-top:2px}
@@ -139,8 +137,6 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 .folder-name{font-size:0.85em;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .folder-maps{border-left:3px solid var(--green)}.folder-maps .folder-icon{color:var(--green)}
 .folder-videos{border-left:3px solid var(--blue)}.folder-videos .folder-icon{color:var(--blue)}
-.folder-ambient{border-left:3px solid var(--purple)}.folder-ambient .folder-icon{color:var(--purple)}
-.folder-sfx{border-left:3px solid var(--orange)}.folder-sfx .folder-icon{color:var(--orange)}
 .file-item{display:flex;align-items:center;padding:8px 10px;background:var(--surface);
   border:1px solid var(--border);border-radius:6px;gap:8px;flex-wrap:wrap;user-select:none}
 .file-item .info{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
@@ -148,7 +144,6 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   font-weight:600;letter-spacing:0.05em;flex-shrink:0}
 .badge-image{background:#2a3a2a;color:#6a9a5a}
 .badge-video{background:#2a2a3a;color:#5a6a9a}
-.badge-audio{background:#3a2a3a;color:#9a5a9a}
 .file-item .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85em}
 .file-item .sz{color:var(--text-dim);font-size:0.75em;flex-shrink:0}
 .file-item .acts{display:flex;gap:4px;flex-shrink:0}
@@ -226,6 +221,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   background:var(--green);margin-right:6px;vertical-align:middle;
   box-shadow:0 0 6px rgba(90,168,74,0.6);transition:all 0.3s}
 .conn-dot.offline{background:var(--red);box-shadow:0 0 6px rgba(200,74,74,0.6)}
+.conn-dot.idle{background:var(--gold-dim);box-shadow:0 0 6px rgba(164,135,64,0.6)}
 
 /* Section divider — groups cards within a tab */
 .section-h{font-family:'Cinzel',serif;color:var(--gold-dim);font-size:0.7em;
@@ -233,7 +229,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   padding-bottom:4px;border-bottom:1px solid var(--border)}
 .section-h:first-child{margin-top:4px}
 
-/* Playback cards — Map, Ambience.  Title up top (big + tappable),
+/* Playback cards — Map, Music.  Title up top (big + tappable),
    status middle, transport (volume + stop) at the bottom. */
 .play-card .play-title{display:flex;align-items:center;justify-content:space-between;
   font-family:'Cinzel',serif;color:var(--gold);font-size:1.05em;
@@ -255,7 +251,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 .play-card .play-transport .vol .val{font-size:0.75em;color:var(--text-dim);min-width:36px;text-align:right}
 .play-card.is-playing .play-status{color:var(--gold)}
 .play-card.map.is-playing .play-status{color:var(--green)}
-.play-card.ambient.is-playing .play-status{color:var(--purple)}
+.play-card.music.is-playing .play-status{color:var(--purple)}
 
 /* Inline grid controls — sliders live on the Table tab now */
 .grid-card .grid-types{display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
@@ -322,32 +318,21 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     </div>
   </div>
 
-  <!-- Ambience card -->
-  <div class="card play-card ambient" id="ambCard">
-    <div class="play-title" onclick="openPicker('ambient')">
-      <span>&#127925; Ambience</span>
-      <span class="chev">&#8250;</span>
+  <!-- Music card — the table is one of the remote music server's outputs.
+       On/off + volume + mute drive the local headless music-output client
+       via Flask's /music/* proxy; track selection happens on the server. -->
+  <div class="card play-card music" id="musicCard">
+    <div class="play-title" style="cursor:default">
+      <span><span class="conn-dot offline" id="musicDot"></span>&#127925; Music</span>
+      <button class="btn btn-sm" id="musicPower" onclick="toggleMusicPower()" disabled>&#8212;</button>
     </div>
-    <div class="play-status empty" id="ambStatus">Nothing selected — tap title to choose</div>
+    <div class="play-status empty" id="musicStatus">Output offline</div>
     <div class="play-transport">
       <div class="vol">
-        <button class="btn-mute" id="mute-ambient" onclick="toggleMute('ambient')" title="Mute">&#128266;</button>
-        <input type="range" min="0" max="100" value="80" step="1" id="vol-ambient"
-          oninput="onVolSlider('ambient',+this.value)">
-        <span class="val" id="vol-ambient-v">80%</span>
-      </div>
-      <div id="ambBtns"></div>
-    </div>
-  </div>
-
-  <!-- SFX card — disabled until backend playback lands -->
-  <div class="card unreleased" aria-disabled="true">
-    <div class="card-header">
-      <div class="card-title sfx-strong">&#9889; SFX</div>
-      <div class="vol-row">
-        <button class="btn-mute" id="mute-sfx" tabindex="-1" title="Mute">&#128266;</button>
-        <input type="range" min="0" max="100" value="80" step="1" id="vol-sfx" tabindex="-1">
-        <span class="val" id="vol-sfx-v">80%</span>
+        <button class="btn-mute" id="mute-music" onclick="toggleMusicMute()" title="Mute">&#128266;</button>
+        <input type="range" min="0" max="100" value="100" step="1" id="vol-music"
+          oninput="onMusicVol(+this.value)">
+        <span class="val" id="vol-music-v">100%</span>
       </div>
     </div>
   </div>
@@ -400,9 +385,9 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     <span class="chev" id="uploadChev">&#9662;</span>
   </div>
   <div class="upload collapsed" id="uploadZone">
-    <input type="file" id="fileInput" accept="image/*,video/*,audio/*" multiple
+    <input type="file" id="fileInput" accept="image/*,video/*" multiple
       onchange="uploadFiles(this.files)">
-    <div class="lbl">Drop maps, videos, or audio here</div>
+    <div class="lbl">Drop maps or videos here</div>
     <div class="hint">Uploaded to current folder on SD card</div>
     <div class="pbar" id="pbar"><div class="fill" id="pfill"></div></div>
   </div>
@@ -638,16 +623,14 @@ function api(url,body){
 
 /* ─── Playback ─── */
 function stopDisplay(){api('/stop',{}).then(function(){toast('Display stopped');refreshStatus()})}
-function stopAudio(){api('/stop_audio',{}).then(function(){toast('Audio stopped');refreshStatus()})}
 function playFile(p){api('/play',{path:p}).then(function(d){toast('Playing: '+d.filename);refreshStatus();closePicker()})}
-function playAudio(p){api('/play_audio',{path:p}).then(function(d){toast('Ambience: '+d.filename);refreshStatus();closePicker()})}
 function deleteFile(p){if(!confirm('Delete this file?'))return;
   api('/delete',{path:p}).then(function(){toast('Deleted');browseCur()})}
 
-/* ─── Volume + Mute ─── */
+/* ─── Volume + Mute (Map / video output) ─── */
 var _volTimer={};
-var _muteState={map:false, ambient:false, sfx:false};
-var _premuteVol={map:80, ambient:80, sfx:80};
+var _muteState={map:false};
+var _premuteVol={map:80};
 
 function onVolSlider(target, level){
   /* Moving the slider always unmutes */
@@ -682,6 +665,84 @@ function _sendVolume(target, level){
   _volTimer[target] = setTimeout(function(){
     api('/volume',{target:target, level:level});
   }, 150);
+}
+
+/* ─── Music output (the table is one of the remote server's outputs) ─── */
+/* Drives the local headless music-output client via Flask's /music/* proxy.
+   "connected" = the client is reachable; on/off is its local power switch;
+   mute is volume-0-with-restore (the client has no separate mute). */
+var _musicOn=false,_musicConnected=false,_musicMuted=false,_musicPremute=100,_musicVolTimer=null;
+
+function refreshMusic(){
+  fetch('/music/status').then(function(r){return r.json()}).then(renderMusic)
+    .catch(function(){renderMusic({connected:false})});
+}
+
+function renderMusic(s){
+  s=s||{};
+  _musicConnected=!!s.connected;
+  _musicOn=!!s.on;
+  var dot=document.getElementById('musicDot');
+  var status=document.getElementById('musicStatus');
+  var power=document.getElementById('musicPower');
+  var card=document.getElementById('musicCard');
+  if(dot){
+    dot.classList.remove('offline','idle');
+    if(!s.connected) dot.classList.add('offline');
+    else if(!s.on) dot.classList.add('idle');   /* connected but switched off */
+    /* connected + on → no class → green */
+  }
+  if(power){
+    power.disabled=!s.connected;
+    power.textContent=!s.connected?'—':(s.on?'On':'Off');
+    power.classList.toggle('active',!!s.on);
+  }
+  if(card) card.classList.toggle('is-playing',!!(s.connected&&s.on&&s.is_playing));
+  if(status){
+    var txt,empty=true;
+    if(!s.connected) txt='Output offline';
+    else if(!s.on) txt='Off';
+    else if(s.is_playing&&s.title){txt=s.title+(s.artist?' — '+s.artist:'');empty=false;}
+    else txt='On — nothing playing';
+    status.textContent=txt;
+    status.classList.toggle('empty',empty);
+  }
+  /* Reflect the client's volume unless the user is dragging or has muted. */
+  if(s.connected&&typeof s.volume==='number'&&!_musicMuted){
+    var sl=document.getElementById('vol-music');
+    var lbl=document.getElementById('vol-music-v');
+    var pct=Math.round(s.volume*100);
+    if(sl&&!sl.matches(':active')){sl.value=pct;if(lbl)lbl.textContent=pct+'%';_musicPremute=pct;}
+  }
+}
+
+function toggleMusicPower(){
+  if(!_musicConnected) return;
+  api('/music/power',{on:!_musicOn}).then(renderMusic);
+}
+
+function onMusicVol(level){
+  _musicMuted=false;_musicPremute=level;
+  _updateMusicMuteIcon();
+  document.getElementById('vol-music-v').textContent=level+'%';
+  clearTimeout(_musicVolTimer);
+  _musicVolTimer=setTimeout(function(){api('/music/volume',{level:level})},150);
+}
+
+function toggleMusicMute(){
+  if(!_musicConnected) return;
+  _musicMuted=!_musicMuted;
+  _updateMusicMuteIcon();
+  var level=_musicMuted?0:_musicPremute;
+  var sl=document.getElementById('vol-music'); if(sl) sl.value=level;
+  document.getElementById('vol-music-v').textContent=level+'%';
+  api('/music/volume',{level:level});
+}
+
+function _updateMusicMuteIcon(){
+  var btn=document.getElementById('mute-music'); if(!btn) return;
+  btn.innerHTML=_musicMuted?'&#128263;':'&#128266;';
+  btn.classList.toggle('muted',_musicMuted);
 }
 
 /* ─── Grid ─── */
@@ -1035,9 +1096,7 @@ function esc(s){return s.replace(/'/g,"\\'")}
 
 var FMETA={
   Maps:{cls:'folder-maps',icon:'&#128506;'},
-  Videos:{cls:'folder-videos',icon:'&#127916;'},
-  Ambient:{cls:'folder-ambient',icon:'&#127925;'},
-  SFX:{cls:'folder-sfx',icon:'&#9889;'}
+  Videos:{cls:'folder-videos',icon:'&#127916;'}
 };
 
 /* ─── Rename ─── */
@@ -1090,7 +1149,7 @@ function renderBrowser(data){
   }
   for(var di=0;di<data.files.length;di++){
     var fl=data.files[di];
-    var isA=fl.type==='audio',fn=isA?'playAudio':'playFile',ic=isA?'&#9835;':'&#9654;';
+    var fn='playFile',ic='&#9654;';
     out+='<div class="file-item" ondblclick="'+fn+'(\''+esc(fl.path)+'\')">';
     out+='<div class="info"><span class="badge badge-'+fl.type+'">'+fl.type+'</span>';
     out+='<span class="name">'+fl.name+'</span></div>';
@@ -1138,15 +1197,14 @@ function playFolderCmd(path){
     if(d.error)toast(d.error);else toast('Playing: '+d.filename);refreshStatus()})}
 
 /* ═══════════════════════════════════════════════════════════════
-   PICKER POPUP (used by Map and Ambience cards)
+   PICKER POPUP (used by the Map card)
    ═══════════════════════════════════════════════════════════════ */
 var pickerMode=null;
 var pickerSource='sdcard';
 var pickerPath='';
 
 var PICKER_CFG={
-  map:{title:'Select Map',root:'Maps',filterTypes:['image','video'],playFn:'playFile'},
-  ambient:{title:'Select Ambience',root:'Ambient',filterTypes:['audio'],playFn:'playAudio'}
+  map:{title:'Select Map',root:'Maps',filterTypes:['image','video'],playFn:'playFile'}
 };
 
 function openPicker(mode){
@@ -1202,7 +1260,7 @@ function renderPicker(data){
   for(var di=0;di<filtered.length;di++){
     var fl=filtered[di];
     var playFn=cfg.playFn;
-    var ic=fl.type==='audio'?'&#9835;':'&#9654;';
+    var ic='&#9654;';
     out+='<div class="file-item">';
     out+='<div class="info"><span class="badge badge-'+fl.type+'">'+fl.type+'</span>';
     out+='<span class="name">'+fl.name+'</span></div>';
@@ -1255,25 +1313,9 @@ function refreshStatus(){
       mapMeta.innerHTML='';
     }
 
-    /* ── Ambience card ────────────────────────────────────── */
-    var ambName=d.current_audio;
-    var ambCard=document.getElementById('ambCard');
-    var ambStatus=document.getElementById('ambStatus');
-    var ambBtns=document.getElementById('ambBtns');
-    ambCard.classList.toggle('is-playing', !!ambName);
-    if(ambName){
-      ambStatus.classList.remove('empty');
-      ambStatus.textContent=ambName;
-      ambBtns.innerHTML='<button class="btn btn-stop btn-sm" onclick="stopAudio()">&#9632; Stop</button>';
-    } else {
-      ambStatus.classList.add('empty');
-      ambStatus.textContent='Nothing selected — tap title to choose';
-      ambBtns.innerHTML='';
-    }
-
     /* ── Volume sliders (sync only when idle and not muted) ─ */
     if(d.volumes){
-      var targets=['map','ambient','sfx'];
+      var targets=['map'];
       for(var vi=0;vi<targets.length;vi++){
         var t=targets[vi],v=d.volumes[t];
         if(v!==undefined && !_muteState[t]){
@@ -1344,7 +1386,7 @@ function refreshSources(){
   });
 }
 
-refreshStatus();refreshSources();refreshDisplayModes();refreshThemes();refreshIps();browseFolder('sdcard','');
-setInterval(refreshStatus,5000);setInterval(refreshSources,10000);
+refreshStatus();refreshSources();refreshDisplayModes();refreshThemes();refreshIps();refreshMusic();browseFolder('sdcard','');
+setInterval(refreshStatus,5000);setInterval(refreshSources,10000);setInterval(refreshMusic,2500);
 </script>
 </body></html>

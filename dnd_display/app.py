@@ -327,10 +327,9 @@ def _dispatch_event(window: "DndDisplay", data: dict) -> None:
             schedule(window.set_overscan, data["overscan"])
         return
 
-    # volume / current_audio aren't display-side concerns — Flask owns
-    # them entirely (mpv subprocess + UI sync via /status).  Silently
-    # ignore unknown event types so future Flask additions don't crash
-    # an older display app.
+    # `volume` isn't a display-side concern — Flask owns it (UI sync via
+    # /status).  Unknown event types are silently ignored so future Flask
+    # additions don't crash an older display app.
 
 
 def _start_sse_subscriber(window: "DndDisplay") -> None:

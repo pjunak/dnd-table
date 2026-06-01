@@ -1,0 +1,27 @@
+# Headless music output — makes the DnD table one of the audio outputs of
+# the remote music server (pjunak/music, music.junak.eu).
+#
+# install.sh deploys this to /etc/systemd/system/music-output.service and
+# the client itself to /opt/music-output/music_output.py.  All config
+# (server URL, device name, control port, XDG_RUNTIME_DIR) lives in
+# /etc/music-output.env so the unit stays host-agnostic.
+[Unit]
+Description=DnD Table — headless music audio output
+# Wait for the network and the sound stack; the client retries on its own
+# (Restart=always) so a boot-time race resolves without intervention.
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dndtable
+# Audio access: XDG_RUNTIME_DIR (set in the env file) points mpv at the
+# dndtable session's PipeWire socket; the audio group is the ALSA fallback.
+SupplementaryGroups=audio
+EnvironmentFile=/etc/music-output.env
+ExecStart=/usr/bin/python3 /opt/music-output/music_output.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

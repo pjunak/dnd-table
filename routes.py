@@ -24,10 +24,11 @@ from flask import request, jsonify, render_template, Response, send_file
 import state
 import settings as settings_store
 from config import MEDIA_DIRS, UPLOAD_DIR, PROTECTED_FOLDERS
-from media import get_file_type, kill_audio, play_audio, set_audio_volume
+from media import get_file_type
 from files import detect_usb_drives, get_source_roots, browse_directory
 from updater import check_for_update, apply_update
 import display_modes
+import music
 
 log = logging.getLogger(__name__)
 
@@ -101,8 +102,6 @@ def _persist_now():
         "overscan": {k: v for k, v in state.overscan_state.items() if k != "calibration"},
         "volumes": {
             "map": state.video_volume,
-            "ambient": state.audio_volume,
-            "sfx": state.sfx_volume,
         },
         "display": {
             "mode": state.display_mode_pref,
@@ -134,7 +133,7 @@ def _path_in_allowed_roots(p: Path) -> bool:
     Browsable sources = the SD-card upload dir + any currently-mounted
     USB drive (as enumerated by ``files.get_source_roots()``).  The
     play / serve endpoints all defer here so a malicious POST can't
-    point GStreamer / MPV / send_file at arbitrary filesystem paths.
+    point GStreamer / send_file at arbitrary filesystem paths.
     """
     try:
         resolved = p.resolve()
@@ -284,13 +283,8 @@ def register_routes(app):
     def status_route():
         return jsonify(
             current=state.current_file,
-            current_audio=state.current_audio,
             grid=state.grid_state,
-            volumes={
-                "map": state.video_volume,
-                "ambient": state.audio_volume,
-                "sfx": state.sfx_volume,
-            },
+            volumes={"map": state.video_volume},
             file_info=state.current_file_info,
             overscan=state.overscan_state,
             splash_theme=state.splash_theme,
@@ -356,10 +350,7 @@ def register_routes(app):
         dest = dest_dir / safe_name
         f.save(str(dest))
 
-        if ftype == "audio":
-            play_audio(dest)
-        else:
-            _play_on_display(dest)
+        _play_on_display(dest)
         return jsonify(filename=safe_name, status="playing")
 
     # ─── Playback controls ───────────────────────────────────────
@@ -373,17 +364,6 @@ def register_routes(app):
         if not _path_in_allowed_roots(filepath):
             return jsonify(error="Forbidden"), 403
         _play_on_display(filepath)
-        return jsonify(status="playing", filename=filepath.name)
-
-    @app.route("/play_audio", methods=["POST"])
-    def play_audio_route():
-        data = request.get_json() or {}
-        filepath = Path(data.get("path", ""))
-        if not filepath.exists():
-            return jsonify(error="File not found"), 404
-        if not _path_in_allowed_roots(filepath):
-            return jsonify(error="Forbidden"), 403
-        play_audio(filepath)
         return jsonify(status="playing", filename=filepath.name)
 
     @app.route("/play_folder", methods=["POST"])
@@ -406,22 +386,13 @@ def register_routes(app):
         for f in sorted(target.iterdir()):
             ftype = get_file_type(f.name) if f.is_file() else None
             if ftype:
-                if ftype == "audio":
-                    play_audio(f)
-                else:
-                    _play_on_display(f)
+                _play_on_display(f)
                 return jsonify(status="playing", filename=f.name)
         return jsonify(error="No playable files in folder"), 404
 
     @app.route("/stop", methods=["POST"])
     def stop():
         _stop_display()
-        return jsonify(status="stopped")
-
-    @app.route("/stop_audio", methods=["POST"])
-    def stop_audio_route():
-        kill_audio()
-        state.current_audio = None
         return jsonify(status="stopped")
 
     # ─── Delete ──────────────────────────────────────────────────
@@ -435,9 +406,6 @@ def register_routes(app):
         if filepath.exists():
             if state.current_file == filepath.name:
                 _stop_display()
-            if state.current_audio == filepath.name:
-                kill_audio()
-                state.current_audio = None
             filepath.unlink()
         return jsonify(status="deleted")
 
@@ -497,20 +465,16 @@ def register_routes(app):
 
     @app.route("/volume", methods=["POST"])
     def volume():
+        """Set the map / video output volume.  (Music volume is separate —
+        see the /music/* routes.)"""
         data = request.get_json()
         target = data.get("target", "")
         level = data.get("level", 80)
-        if target not in ("map", "ambient", "sfx"):
+        if target != "map":
             return jsonify(error="Invalid target"), 400
         level = max(0, min(100, int(level)))
-        if target == "map":
-            state.video_volume = level
-            broadcast("volume", {"level": level})
-        elif target == "ambient":
-            state.audio_volume = level
-            set_audio_volume(level)
-        elif target == "sfx":
-            state.sfx_volume = level
+        state.video_volume = level
+        broadcast("volume", {"level": level})
         _persist()
         return jsonify(status="ok", target=target, level=level)
 
@@ -653,6 +617,26 @@ def register_routes(app):
         broadcast("splash_theme", {"theme": name})
         _persist()
         return jsonify(ok=True, theme=name)
+
+    # ─── Music output (headless client proxy) ────────────────────
+
+    @app.route("/music/status")
+    def music_status():
+        """Proxy the local music-output client's control surface."""
+        return jsonify(music.status())
+
+    @app.route("/music/power", methods=["POST"])
+    def music_power():
+        """Turn the table's music output on/off."""
+        data = request.get_json() or {}
+        return jsonify(music.set_power(bool(data.get("on"))))
+
+    @app.route("/music/volume", methods=["POST"])
+    def music_volume():
+        """Set the music output volume (panel sends 0–100; client wants 0–1)."""
+        data = request.get_json() or {}
+        level = max(0, min(100, int(data.get("level", 0))))
+        return jsonify(music.set_volume(level / 100.0))
 
     @app.route("/api/ips")
     def api_ips():

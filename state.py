@@ -7,10 +7,6 @@ display app (`dnd_display`) subscribes to changes via the SSE bridge in
 routes.py.
 """
 
-# ─── Audio process (MPV subprocess for ambient) ──────────────────
-audio_process = None
-current_audio = None
-
 # ─── Display state (what the native display app is showing) ──────
 current_file = None       # filename only, for control panel display
 current_file_path = None  # absolute path, native display loads from here
@@ -45,9 +41,10 @@ overscan_state = {
 }
 
 # ─── Volume (0–100) ──────────────────────────────────────────────
+# Map / video output volume.  (Video audio isn't wired into the GStreamer
+# pipeline yet; kept for the Map card + future use.  Music lives in the
+# separate headless music-output client, not here.)
 video_volume = 80
-audio_volume = 80
-sfx_volume = 80
 
 # ─── Display output preference ───────────────────────────────────
 # Mode string like "1920x1080@60", or None to use the compositor default

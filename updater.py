@@ -22,6 +22,14 @@ REMOTE = "origin"
 BRANCH = "main"
 REPO_URL = "https://github.com/pjunak/dnd-table"
 
+# Headless music-output client (pjunak/music) — lives outside the repo at
+# /opt/music-output and is refreshed from upstream on each update.
+_MUSIC_OUTPUT_PY = "/opt/music-output/music_output.py"
+_MUSIC_OUTPUT_URL = (
+    "https://raw.githubusercontent.com/pjunak/music/main/"
+    "clients/headless/music_output.py"
+)
+
 # Must match install.sh — otherwise `rsync --delete` will wipe the venv,
 # user PNGs, and on-disk settings every time the updater runs.
 _RSYNC_EXCLUDES = (
@@ -176,6 +184,32 @@ def _ensure_venv():
     return True, ""
 
 
+def _refresh_music_output():
+    """Best-effort refresh of the headless music-output client.
+
+    The client lives outside the repo (/opt/music-output, owned by the
+    service user) and tracks upstream pjunak/music, so re-fetch it on
+    update.  Non-fatal: the existing copy keeps working if the download
+    fails, and the whole step is skipped on boxes without the output.
+    """
+    if not os.path.isdir(os.path.dirname(_MUSIC_OUTPUT_PY)):
+        return
+    try:
+        # The dir is owned by the service user, so refreshing the client
+        # itself needs no sudo; only the unit file (in /etc) needs root.
+        subprocess.run(
+            ["curl", "-fsSL", _MUSIC_OUTPUT_URL, "-o", _MUSIC_OUTPUT_PY],
+            capture_output=True, timeout=30,
+        )
+        subprocess.run(
+            ["sudo", "cp", f"{INSTALL_DIR}/system/music-output.service",
+             "/etc/systemd/system/music-output.service"],
+            capture_output=True, timeout=5,
+        )
+    except Exception as e:
+        log.warning("music-output refresh failed: %s", e)
+
+
 def apply_update():
     """Pull the latest code and deploy to the install directory.
 
@@ -229,7 +263,10 @@ def apply_update():
     if not ok:
         return {"ok": False, "error": err}
 
-    # Reload service file in case it changed
+    # Refresh the headless music-output client (lives outside the repo).
+    _refresh_music_output()
+
+    # Reload service files in case they changed
     subprocess.run(
         ["sudo", "cp", f"{INSTALL_DIR}/dnd-table.service",
          "/etc/systemd/system/dnd-table.service"],
@@ -237,6 +274,12 @@ def apply_update():
     )
     subprocess.run(
         ["sudo", "systemctl", "daemon-reload"],
+        capture_output=True, timeout=10,
+    )
+    # Pick up a refreshed music client (best-effort; the Flask service
+    # itself is restarted by the /update/apply route).
+    subprocess.run(
+        ["sudo", "systemctl", "restart", "music-output.service"],
         capture_output=True, timeout=10,
     )
 

@@ -25,13 +25,11 @@ No chromium, no xrandr, no RPi config.txt — those concerns belong to the
 greetd/cage stack (kiosk.sh) and the native display app respectively.
 """
 
-import atexit
 import logging
 
 from flask import Flask
 
 from config import MEDIA_DIRS, UPLOAD_DIR
-from media import kill_audio
 from files import ensure_default_folders
 from routes import register_routes
 import state
@@ -45,11 +43,6 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # SD card.  Tweak in config.py if you regularly host bigger map videos.
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024
 register_routes(app)
-
-
-def _cleanup():
-    """Stop ambient audio on exit."""
-    kill_audio()
 
 
 # ─── Entry point ─────────────────────────────────────────────────
@@ -74,8 +67,6 @@ if __name__ == "__main__":
         state.overscan_state["calibration"] = False
     if saved.get("volumes"):
         state.video_volume = saved["volumes"].get("map", 80)
-        state.audio_volume = saved["volumes"].get("ambient", 80)
-        state.sfx_volume = saved["volumes"].get("sfx", 80)
     if saved.get("display"):
         state.display_mode_pref = saved["display"].get("mode") or None
     if saved.get("splash"):
@@ -87,8 +78,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
-
-    atexit.register(_cleanup)
 
     # Re-pin the user's saved display mode whenever cage drifts away from it
     # (cold boot before cage is ready, HDMI hot-plug, EDID renegotiation).

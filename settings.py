@@ -37,8 +37,6 @@ _DEFAULTS = {
     },
     "volumes": {
         "map": 80,
-        "ambient": 80,
-        "sfx": 80,
     },
     "display": {
         "mode": None,   # None = use compositor / EDID default

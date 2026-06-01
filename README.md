@@ -8,7 +8,7 @@ A TV mounted in a D&D gaming table, driven by a small x86 PC running Debian. The
 
 - Plays map images / videos fullscreen with aspect-correct letterboxing and looping
 - Overlays a calibrated square or pointy-top hex grid (DPI calibration in the panel)
-- Streams ambient audio independently (MPV)
+- Acts as a remote audio output for [pjunak/music](https://github.com/pjunak/music): plays whatever's on the music server through the table's speakers, with on/off · volume · mute from the panel
 - Animates a 3D D20 splash when idle, with 5 selectable themes (arcane, flame, storm, ancient, verdant) and Elder Futhark runes
 - Self-updates from GitHub via the panel ("Check for Updates" → "Update & Restart")
 
@@ -54,13 +54,14 @@ sudo reboot
 `install.sh` is idempotent — re-run it any time you suspect drift. It:
 
 1. Enables `contrib` + `non-free` (for `i965-va-driver-shaders`)
-2. Installs apt packages: Flask, GStreamer + VA-API, mpv, greetd + cage + xwayland, PipeWire, Pillow, etc.
+2. Installs apt packages: Flask, GStreamer + VA-API, mpv + libmpv + python3-mpv + python3-websocket (music output), greetd + cage + xwayland, PipeWire, Pillow, etc.
 3. Creates `/opt/dnd-table/.venv` with `--system-site-packages` and pip-installs `requirements.txt` (moderngl, pyglet, sseclient-py)
 4. Adds `dndtable` to `video`, `render`, `input`, `audio` groups
 5. Writes a NOPASSWD sudoers rule for the specific commands Flask invokes
 6. Swaps `/etc/greetd/config.toml` to autologin `dndtable` into `cage /opt/dnd-table/kiosk.sh`
 7. Disables `getty@tty1` so greetd owns the console
 8. Installs and enables `dnd-table.service`
+9. Installs the headless music-output client to `/opt/music-output` + `music-output.service`, with `/etc/music-output.env` pointed at `music.junak.eu`
 
 `uninstall.sh` reverses all of the above except the apt packages themselves.
 
@@ -68,7 +69,7 @@ sudo reboot
 
 The control panel auto-loads at `http://dndtable.local` from any device on the same network (port 80 redirects to Flask on 5000).
 
-- **Table tab** — pick a Map, an Ambience, adjust volumes, toggle the grid
+- **Table tab** — pick a Map, control the Music output (on/off, volume, mute), toggle the grid
 - **Library tab** — upload / rename / delete files on the SD card; browse USB drives
 - **Styles tab** — pick a splash theme; preview swatches show face / rune / rim colors over the theme's actual backdrop
 - **Settings tab** — pick display mode, run a display test pattern, calibrate safe area + grid DPI, see the device's network addresses, check for updates, reboot/shutdown
@@ -80,6 +81,20 @@ The control panel auto-loads at `http://dndtable.local` from any device on the s
 | `T` | Cycle splash themes |
 | `Esc` / `Q` | Exit the display app (greetd will restart it) |
 
+## Music output
+
+The table is a headless **audio output** for [pjunak/music](https://github.com/pjunak/music). A small guest client (`music_output.py`, from that repo's `clients/headless/`) runs as `music-output.service`, follows the server's playback over a WebSocket, and plays it through mpv → PipeWire. You queue and control tracks from the music server's own web UI (`music.junak.eu`); the DnD panel's **Music** card drives only *this output*: on/off, volume, mute, and a connection indicator.
+
+Config lives in `/etc/music-output.env`:
+
+```
+MUSIC_SERVER_URL=https://music.junak.eu   # the music server
+MUSIC_OUTPUT_NAME=DnD Table               # shown in the server's Outputs picker
+MUSIC_CONTROL_PORT=8731                   # localhost control surface Flask proxies
+```
+
+The panel talks to the client through Flask (`/music/*` → `127.0.0.1:8731/control`), so the control port never has to leave the box. Point the table at a different server by editing `MUSIC_SERVER_URL` and `sudo systemctl restart music-output`.
+
 ## Updating
 
 From the panel: **Settings → Software Update → Check for Updates → Update & Restart**. The updater:
@@ -87,7 +102,8 @@ From the panel: **Settings → Software Update → Check for Updates → Update 
 1. `git pull` the local clone
 2. `rsync` to `/opt/dnd-table` (excluding `.venv`, `*.png`, `settings.json`)
 3. Recreate the venv if it's missing, `pip install -r requirements.txt`
-4. Restart `dnd-table.service`
+4. Re-fetch the music-output client and restart `music-output.service`
+5. Restart `dnd-table.service`
 
 The SSE bridge auto-reconnects within seconds of Flask coming back; the kiosk window doesn't go away.
 
@@ -105,6 +121,7 @@ It still wants a Wayland session and a working GL 3.3 context. To run just the F
 
 - `main.py` — Flask entry; reads `settings.json`, registers routes
 - `routes.py` — REST + SSE; **all path-touching endpoints validate against an allowlist** (`_path_in_allowed_roots`)
+- `music.py` — proxies the local headless music-output client's control surface (the panel's `/music/*` routes)
 - `dnd_display/app.py` — pyglet window + SSE subscriber + dispatcher
 - `dnd_display/compositor.py` — layer stack + safe-area inset viewport
 - `dnd_display/gst_pipeline.py` — GStreamer pipelines built via `ElementFactory` (paths are passed as properties, never interpolated into a launch string)
@@ -138,7 +155,8 @@ It'll appear in the Styles tab automatically (the panel reads from `/api/splash/
 | "failed to spawn client: permission denied" | `kiosk.sh` lost +x bit | `sudo chmod +x /opt/dnd-table/kiosk.sh && sudo systemctl restart greetd.service` |
 | Panel shows old theme after pressing T at the table | T is local-only; the panel learns on its next `/status` poll | Wait 5 s or tap any other control |
 | SSE not connecting | Flask not up, or firewall on loopback | `sudo journalctl -u dnd-table.service -n 50` |
-| Video plays silently | Audio sink isn't wired in the video pipeline yet | This is by design for v1; ambient is a separate MPV track |
+| Video plays silently | Audio sink isn't wired into the video pipeline yet | By design; table sound comes from the music output, not map videos |
+| Music card shows **Output offline** | `music-output.service` down, or wrong `MUSIC_SERVER_URL` | `sudo systemctl status music-output`; check `/etc/music-output.env`, then `sudo systemctl restart music-output` |
 | Not sure if a glitch is the TV or the app | — | **Settings → Display Test** shows SMPTE bars straight from GStreamer; if they look wrong too, it's the TV / HDMI link, not the media |
 
 ## Project status
