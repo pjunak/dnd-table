@@ -283,6 +283,27 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   background:rgba(201,168,76,0.06)}
 .update-banner .info{flex:1;font-size:0.85em;color:var(--text)}
 .update-banner .info b{color:var(--gold)}
+
+/* ═══ Scene canvas (Table tab authoring surface) ═══ */
+.scene-toolbar{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.scene-tools{display:flex;gap:4px}
+.scene-tools .tool{width:42px;height:42px;font-size:1.15em;display:flex;align-items:center;
+  justify-content:center;border:1px solid var(--border);border-radius:8px;background:var(--surface);
+  color:var(--text-dim);cursor:pointer;user-select:none;transition:all 0.15s}
+.scene-tools .tool:hover{border-color:var(--gold-dim);color:var(--gold)}
+.scene-tools .tool.active{border-color:var(--gold);color:var(--gold);background:#2a2519}
+.scene-spacer{flex:1}
+.scene-actions{display:flex;gap:4px}
+.canvas-wrap{position:relative;width:100%;height:56vh;min-height:260px;background:#0d0b08;
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;touch-action:none;
+  margin-bottom:12px}
+#sceneCanvas{display:block;width:100%;height:100%;cursor:crosshair}
+.canvas-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--text-dim);font-style:italic;pointer-events:none;font-size:0.9em;text-align:center;padding:20px}
+.canvas-hint.hidden{display:none}
+.scene-ctxbar{position:absolute;left:8px;right:8px;bottom:8px;display:none;gap:6px;
+  flex-wrap:wrap;justify-content:center}
+.scene-ctxbar .btn{box-shadow:0 2px 8px rgba(0,0,0,0.5)}
 </style></head>
 <body>
 
@@ -298,6 +319,35 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 
 <!-- ═══ TABLE TAB ═══ -->
 <div id="tab-table" class="tab-content active">
+
+  <!-- Scene canvas — author fog / vision (walls) / tokens / markers on a
+       still of the live map.  Geometry is in map pixels; the display renders
+       the authoritative fog/vision. -->
+  <div class="scene-toolbar">
+    <div class="scene-tools" id="sceneTools">
+      <button class="tool active" data-tool="pan" onclick="sceneSetTool('pan')" title="Pan / zoom / select">&#9995;</button>
+      <button class="tool" data-tool="token" onclick="sceneSetTool('token')" title="Place / move tokens">&#128100;</button>
+      <button class="tool" data-tool="wall" onclick="sceneSetTool('wall')" title="Draw walls (block vision)">&#129521;</button>
+      <button class="tool" data-tool="door" onclick="sceneSetTool('door')" title="Doors (toggle vision)">&#128682;</button>
+      <button class="tool" data-tool="marker" onclick="sceneSetTool('marker')" title="Place markers">&#9888;</button>
+      <button class="tool" data-tool="fog" onclick="sceneSetTool('fog')" title="Reveal area (drag) — manual fog">&#127787;</button>
+    </div>
+    <span class="scene-spacer"></span>
+    <div class="scene-actions">
+      <button class="btn btn-sm" onclick="openPicker('map')" title="Choose map">&#128506;</button>
+      <button class="btn btn-sm" id="fogToggle" onclick="sceneToggleFog()">Fog: Off</button>
+      <button class="btn btn-sm" onclick="scenePlayerView()" title="What the players see">&#128065;</button>
+    </div>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="sceneCanvas"></canvas>
+    <div class="canvas-hint" id="canvasHint">No map loaded — tap &#128506; to choose one</div>
+    <div class="scene-ctxbar" id="sceneCtxBar"></div>
+  </div>
+
+  <!-- Inspector for the selected token / marker -->
+  <div class="card scene-inspector" id="sceneInspector" style="display:none"></div>
+  <input type="file" id="tokenImgInput" accept="image/*" style="display:none">
 
   <!-- Map card -->
   <div class="card play-card map" id="mapCard">
@@ -596,6 +646,17 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
       <button class="btn" onclick="applyCal()">Apply</button>
       <button class="btn btn-stop" onclick="cancelCal()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- Player view — a grim capture of what's actually on the table -->
+<div class="picker-overlay" id="playerViewOverlay" onclick="if(event.target===this)closePlayerView()">
+  <div class="picker-box" style="max-width:94vw">
+    <div class="picker-header">
+      <div class="card-title">Player View &mdash; what's on the table</div>
+      <button class="btn btn-stop btn-sm" onclick="closePlayerView()">&#10005;</button>
+    </div>
+    <img id="playerViewImg" style="max-width:100%;border-radius:8px;display:block" alt="player view">
   </div>
 </div>
 
@@ -1284,6 +1345,7 @@ function setConnState(online){
 function refreshStatus(){
   fetch('/status').then(function(r){return r.json()}).then(function(d){
     setConnState(true);
+    sceneOnStatus(d);
 
     /* ── Map card ─────────────────────────────────────────── */
     var mapName=d.current;
@@ -1386,7 +1448,319 @@ function refreshSources(){
   });
 }
 
-refreshStatus();refreshSources();refreshDisplayModes();refreshThemes();refreshIps();refreshMusic();browseFolder('sdcard','');
+/* ═══════════════════════════════════════════════════════════════
+   SCENE CANVAS — author fog / vision (walls) / tokens / markers on a
+   still of the map.  Scene geometry is in MAP PIXELS; the view maps
+   map→canvas(backing) pixels: sx = mx*scale + ox.  Input is unified via
+   Pointer Events (mouse + touch); two pointers = pinch-zoom + pan.
+   ═══════════════════════════════════════════════════════════════ */
+var SC = {
+  canvas:null, ctx:null, dpr:1, init:false,
+  scene:null, mapW:0, mapH:0, backdrop:null,
+  view:{scale:1, ox:0, oy:0}, fitted:false,
+  tool:'pan', pointers:{}, gesture:null, sel:null, wallPts:[],
+  saveTimer:null, curMap:undefined,
+};
+
+function sceneInit(){
+  SC.canvas = document.getElementById('sceneCanvas');
+  if(!SC.canvas || SC.init) return;
+  SC.init = true;
+  SC.ctx = SC.canvas.getContext('2d');
+  var c = SC.canvas;
+  c.addEventListener('pointerdown', scDown);
+  c.addEventListener('pointermove', scMove);
+  c.addEventListener('pointerup', scUp);
+  c.addEventListener('pointercancel', scUp);
+  c.addEventListener('wheel', scWheel, {passive:false});
+  window.addEventListener('resize', scResize);
+  scResize();
+  sceneLoad();
+}
+
+function scResize(){
+  var c = SC.canvas; if(!c) return;
+  SC.dpr = window.devicePixelRatio || 1;
+  var r = c.getBoundingClientRect();
+  c.width = Math.max(1, Math.round(r.width * SC.dpr));
+  c.height = Math.max(1, Math.round(r.height * SC.dpr));
+  if(!SC.fitted) sceneFitView();
+  sceneRender();
+}
+
+function sceneSetTool(t){
+  SC.tool = t; SC.wallPts = []; SC.sel = null;
+  var els = document.querySelectorAll('#sceneTools .tool');
+  for(var i=0;i<els.length;i++) els[i].classList.toggle('active', els[i].dataset.tool===t);
+  SC.canvas.style.cursor = (t==='pan') ? 'grab' : 'crosshair';
+  scCtxBar(); scInspect(); sceneRender();
+}
+
+/* ── load / save ── */
+function _scEmpty(){ return {width:SC.mapW,height:SC.mapH,grid:{ppg:70,origin:[0,0],type:'square'},
+  walls:[],doors:[],lights:[],tokens:[],markers:[],fog:{mode:'dynamic',enabled:false,revealed:[]}}; }
+function _scEnsure(){ var s=SC.scene; s.walls=s.walls||[]; s.doors=s.doors||[]; s.tokens=s.tokens||[];
+  s.markers=s.markers||[]; s.lights=s.lights||[]; s.grid=s.grid||{ppg:70,origin:[0,0],type:'square'};
+  s.fog=s.fog||{mode:'dynamic',enabled:false,revealed:[]}; if(SC.mapW)s.width=SC.mapW; if(SC.mapH)s.height=SC.mapH; }
+
+function sceneLoad(){
+  fetch('/scene').then(function(r){return r.json()}).then(function(d){
+    SC.mapW=(d.map_size&&d.map_size[0])||0; SC.mapH=(d.map_size&&d.map_size[1])||0;
+    SC.scene=(d.scene&&Object.keys(d.scene).length)?d.scene:_scEmpty(); _scEnsure();
+    var hint=document.getElementById('canvasHint');
+    if(SC.mapW){ var img=new Image();
+      img.onload=function(){SC.backdrop=img; if(hint)hint.classList.add('hidden'); sceneRender();};
+      img.onerror=function(){SC.backdrop=null;};
+      img.src='/scene/still?t='+Date.now();
+    } else { SC.backdrop=null; if(hint)hint.classList.remove('hidden'); }
+    SC.fitted=false; sceneFitView(); scFogBtn(); sceneRender();
+  }).catch(function(){});
+}
+
+function sceneSave(){
+  if(!SC.scene) return;
+  clearTimeout(SC.saveTimer);
+  SC.saveTimer=setTimeout(function(){
+    fetch('/scene',{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scene:SC.scene})}).catch(function(){});
+  }, 200);
+}
+
+/* Reload when the displayed map changes (called from refreshStatus). */
+function sceneOnStatus(d){
+  if(!SC.canvas) return;
+  var cur = d.current || null;
+  if(cur !== SC.curMap){ SC.curMap = cur; sceneLoad(); }
+}
+
+/* ── view transform ── */
+function mapToScreen(x,y){ return [x*SC.view.scale+SC.view.ox, y*SC.view.scale+SC.view.oy]; }
+function screenToMap(sx,sy){ return [(sx-SC.view.ox)/SC.view.scale, (sy-SC.view.oy)/SC.view.scale]; }
+function sceneFitView(){
+  if(!SC.mapW||!SC.mapH||!SC.canvas) return;
+  var s=Math.min(SC.canvas.width/SC.mapW, SC.canvas.height/SC.mapH);
+  SC.view.scale=s; SC.view.ox=(SC.canvas.width-SC.mapW*s)/2; SC.view.oy=(SC.canvas.height-SC.mapH*s)/2;
+  SC.fitted=true;
+}
+function _scZoom(cx,cy,newScale,base){
+  newScale=Math.max(0.02,Math.min(40,newScale));
+  var mx=(cx-base.ox)/base.scale, my=(cy-base.oy)/base.scale;
+  SC.view.scale=newScale; SC.view.ox=cx-mx*newScale; SC.view.oy=cy-my*newScale;
+}
+function _dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+function _mid(a,b){return [(a.x+b.x)/2,(a.y+b.y)/2];}
+
+/* ── pointer input ── */
+function _pos(e){ var r=SC.canvas.getBoundingClientRect(); return [(e.clientX-r.left)*SC.dpr,(e.clientY-r.top)*SC.dpr]; }
+function _plist(){ return Object.keys(SC.pointers).map(function(k){return SC.pointers[k];}); }
+
+function scDown(e){
+  try{SC.canvas.setPointerCapture(e.pointerId);}catch(_){}
+  var p=_pos(e);
+  SC.pointers[e.pointerId]={x:p[0],y:p[1],x0:p[0],y0:p[1],moved:false};
+  var n=Object.keys(SC.pointers).length;
+  if(n===2){ var pl=_plist(); SC.gesture={type:'pinch',d0:_dist(pl[0],pl[1]),mid:_mid(pl[0],pl[1]),view:Object.assign({},SC.view)}; }
+  else if(n===1){ _toolDown(p[0],p[1]); }
+}
+function scMove(e){
+  var pt=SC.pointers[e.pointerId]; if(!pt) return;
+  var p=_pos(e);
+  if(Math.abs(p[0]-pt.x0)>4*SC.dpr||Math.abs(p[1]-pt.y0)>4*SC.dpr) pt.moved=true;
+  pt.x=p[0]; pt.y=p[1];
+  if(Object.keys(SC.pointers).length>=2 && SC.gesture && SC.gesture.type==='pinch'){
+    var pl=_plist(), d=_dist(pl[0],pl[1]), mid=_mid(pl[0],pl[1]);
+    _scZoom(SC.gesture.mid[0],SC.gesture.mid[1],SC.gesture.view.scale*(d/(SC.gesture.d0||1)),SC.gesture.view);
+    SC.view.ox+=mid[0]-SC.gesture.mid[0]; SC.view.oy+=mid[1]-SC.gesture.mid[1];
+    SC.gesture.mid=mid; SC.gesture.d0=d; SC.gesture.view=Object.assign({},SC.view);
+    sceneRender();
+  } else if(Object.keys(SC.pointers).length===1){ _toolMove(p[0],p[1]); }
+}
+function scUp(e){
+  var pt=SC.pointers[e.pointerId]; var n0=Object.keys(SC.pointers).length;
+  delete SC.pointers[e.pointerId];
+  try{SC.canvas.releasePointerCapture(e.pointerId);}catch(_){}
+  if(n0===1 && pt) _toolUp(pt, !pt.moved);
+  if(Object.keys(SC.pointers).length<2 && SC.gesture && SC.gesture.type==='pinch') SC.gesture=null;
+}
+function scWheel(e){ e.preventDefault(); var p=_pos(e); _scZoom(p[0],p[1],SC.view.scale*(e.deltaY<0?1.1:1/1.1),SC.view); sceneRender(); }
+
+/* ── tools ── */
+function _toolDown(sx,sy){
+  var m=screenToMap(sx,sy);
+  if(SC.tool==='pan'){ SC.gesture={type:'pan',view:Object.assign({},SC.view),sx:sx,sy:sy}; }
+  else if(SC.tool==='token'){ var t=_hitToken(m[0],m[1]); if(t){ SC.gesture={type:'drag',token:t}; SC.sel={type:'token',id:t.id}; scCtxBar(); scInspect(); } }
+  else if(SC.tool==='fog'){ SC.gesture={type:'fogrect',start:[m[0],m[1]],cur:[m[0],m[1]]}; }
+}
+function _toolMove(sx,sy){
+  var g=SC.gesture; if(!g) return;
+  if(g.type==='pan'){ SC.view.ox=g.view.ox+(sx-g.sx); SC.view.oy=g.view.oy+(sy-g.sy); sceneRender(); }
+  else if(g.type==='drag'){ var m=screenToMap(sx,sy); g.token.x=Math.round(m[0]); g.token.y=Math.round(m[1]); sceneRender(); }
+  else if(g.type==='fogrect'){ var mm=screenToMap(sx,sy); g.cur=[mm[0],mm[1]]; sceneRender(); }
+}
+function _toolUp(pt, wasTap){
+  var g=SC.gesture; SC.gesture=null;
+  if(g && g.type==='drag'){ if(!wasTap) sceneSave(); return; }
+  if(g && g.type==='fogrect'){ _commitFogRect(g); return; }
+  if(g && g.type==='pan' && !wasTap){ return; }   /* a real pan; a tap falls through to select */
+  if(!wasTap) return;
+  var m=screenToMap(pt.x,pt.y), rx=Math.round(m[0]), ry=Math.round(m[1]);
+  if(SC.tool==='token') _placeToken(m[0],m[1]);
+  else if(SC.tool==='wall'){ SC.wallPts.push([rx,ry]); scCtxBar(); sceneRender(); }
+  else if(SC.tool==='door'){ SC.wallPts.push([rx,ry]); if(SC.wallPts.length>=2){ _addDoor(SC.wallPts[0],SC.wallPts[1]); SC.wallPts=[]; } scCtxBar(); sceneRender(); }
+  else if(SC.tool==='marker') _placeMarker(m[0],m[1]);
+  else if(SC.tool==='pan'){ SC.sel=_hitAny(m[0],m[1]); scCtxBar(); scInspect(); sceneRender(); }
+}
+
+function _hitToken(mx,my){ var s=SC.scene; if(!s) return null;
+  for(var i=s.tokens.length-1;i>=0;i--){ var t=s.tokens[i];
+    if(Math.hypot(mx-t.x,my-t.y) <= 0.5*(t.size_cells||1)*(s.grid.ppg||70)) return t; } return null; }
+function _hitAny(mx,my){ var t=_hitToken(mx,my); return t?{type:'token',id:t.id}:null; }
+
+function _placeToken(mx,my){ var s=SC.scene, id='t'+Date.now().toString(36);
+  s.tokens.push({id:id,x:Math.round(mx),y:Math.round(my),size_cells:1,kind:'disc',name:'',
+    label:String(s.tokens.length+1),color:'#c9a84c',vision:{enabled:true,range:0},is_party:true,hidden:false});
+  SC.sel={type:'token',id:id}; scCtxBar(); scInspect(); sceneSave(); sceneRender(); }
+function _placeMarker(mx,my){ var s=SC.scene, id='m'+Date.now().toString(36);
+  s.markers.push({id:id,type:'trap',x:Math.round(mx),y:Math.round(my),shape:'point',size_cells:1,
+    color:'#c84a4a',label:'',hidden:true,payload:{}});
+  SC.sel={type:'marker',id:id}; scCtxBar(); scInspect(); sceneSave(); sceneRender(); }
+function sceneFinishWall(){ if(SC.wallPts.length>=2){
+    SC.scene.walls.push({id:'w'+Date.now().toString(36),points:SC.wallPts.slice(),blocks_vision:true,blocks_movement:true}); sceneSave(); }
+  SC.wallPts=[]; scCtxBar(); sceneRender(); }
+function sceneDeleteSel(){ if(!SC.sel||!SC.scene) return;
+  var arr=SC.sel.type==='token'?SC.scene.tokens:SC.scene.markers;
+  for(var i=0;i<arr.length;i++){ if(arr[i].id===SC.sel.id){ arr.splice(i,1); break; } }
+  SC.sel=null; scCtxBar(); scInspect(); sceneSave(); sceneRender(); }
+
+function sceneToggleFog(){ if(!SC.scene) return;
+  SC.scene.fog=SC.scene.fog||{mode:'dynamic',enabled:false,revealed:[]};
+  SC.scene.fog.enabled=!SC.scene.fog.enabled; scFogBtn(); sceneSave(); }
+function scFogBtn(){ var b=document.getElementById('fogToggle'); if(!b||!SC.scene) return;
+  var on=SC.scene.fog&&SC.scene.fog.enabled; b.textContent='Fog: '+(on?'On':'Off'); b.classList.toggle('active',!!on); }
+function scenePlayerView(){ var img=document.getElementById('playerViewImg');
+  img.src='/scene/screenshot?t='+Date.now();
+  document.getElementById('playerViewOverlay').classList.add('show'); }
+
+/* ── fog reveal brush (manual reveal regions) ── */
+function _commitFogRect(g){
+  var x0=Math.round(Math.min(g.start[0],g.cur[0])), y0=Math.round(Math.min(g.start[1],g.cur[1]));
+  var x1=Math.round(Math.max(g.start[0],g.cur[0])), y1=Math.round(Math.max(g.start[1],g.cur[1]));
+  if(x1-x0<5||y1-y0<5){ sceneRender(); return; }
+  SC.scene.fog=SC.scene.fog||{mode:'dynamic',enabled:false,revealed:[]};
+  SC.scene.fog.revealed=SC.scene.fog.revealed||[];
+  SC.scene.fog.revealed.push([[x0,y0],[x1,y0],[x1,y1],[x0,y1]]);
+  sceneSave(); sceneRender();
+}
+function sceneFogMode(){ if(!SC.scene) return; SC.scene.fog=SC.scene.fog||{mode:'dynamic',enabled:false,revealed:[]};
+  SC.scene.fog.mode=(SC.scene.fog.mode==='manual')?'dynamic':'manual'; scCtxBar(); sceneSave(); }
+function sceneClearReveals(){ if(!SC.scene||!SC.scene.fog) return; SC.scene.fog.revealed=[]; sceneSave(); sceneRender(); }
+function _fillPoly(ctx,poly){ if(!poly||poly.length<3) return; ctx.beginPath();
+  var p0=mapToScreen(poly[0][0],poly[0][1]); ctx.moveTo(p0[0],p0[1]);
+  for(var i=1;i<poly.length;i++){var p=mapToScreen(poly[i][0],poly[i][1]);ctx.lineTo(p[0],p[1]);} ctx.closePath(); ctx.fill(); ctx.stroke(); }
+
+function scCtxBar(){ var bar=document.getElementById('sceneCtxBar'); if(!bar) return; var h='';
+  if(SC.tool==='wall'&&SC.wallPts.length){ h='<button class="btn btn-sm btn-play" onclick="sceneFinishWall()">&#10003; Finish wall ('+SC.wallPts.length+')</button>'
+      +'<button class="btn btn-sm" onclick="SC.wallPts=[];scCtxBar();sceneRender()">Cancel</button>'; }
+  else if(SC.tool==='door'&&SC.wallPts.length){ h='<span style="color:var(--text-dim);font-size:0.8em;align-self:center">Tap the door&#39;s far end…</span>'
+      +'<button class="btn btn-sm" onclick="SC.wallPts=[];scCtxBar();sceneRender()">Cancel</button>'; }
+  else if(SC.tool==='fog'){ var fm=(SC.scene&&SC.scene.fog&&SC.scene.fog.mode)||'dynamic';
+    h='<button class="btn btn-sm" onclick="sceneFogMode()">Mode: '+fm+'</button>'
+     +'<button class="btn btn-sm btn-del" onclick="sceneClearReveals()">Clear reveals</button>'
+     +'<span style="color:var(--text-dim);font-size:0.78em;align-self:center">drag to reveal</span>'; }
+  bar.innerHTML=h; bar.style.display=h?'flex':'none'; }
+
+/* ── inspector: edit the selected token / marker ── */
+function _scFind(type,id){ if(!SC.scene) return null; var arr=type==='token'?SC.scene.tokens:SC.scene.markers;
+  for(var i=0;i<arr.length;i++) if(arr[i].id===id) return arr[i]; return null; }
+function _esc2(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function _row(lbl,ctrl){ return '<div class="row" style="margin-top:6px"><label style="min-width:78px">'+lbl+'</label>'+ctrl+'</div>'; }
+function _cellsFromPx(px){ var ppg=(SC.scene&&SC.scene.grid&&SC.scene.grid.ppg)||70; return px>0?Math.round(px/ppg):0; }
+
+function scInspect(){
+  var el=document.getElementById('sceneInspector'); if(!el) return;
+  var o=SC.sel?_scFind(SC.sel.type,SC.sel.id):null;
+  if(!o){ el.style.display='none'; el.innerHTML=''; return; }
+  var h='';
+  if(SC.sel.type==='token'){
+    h+='<div class="card-title">Token</div>';
+    h+=_row('Name','<input type="text" value="'+_esc2(o.name)+'" oninput="scEdit(\'name\',this.value)">');
+    h+=_row('Label','<input type="text" maxlength="3" style="width:64px" value="'+_esc2(o.label)+'" oninput="scEdit(\'label\',this.value)"> <span style="font-size:0.75em;color:var(--text-dim)">(if no art)</span>');
+    h+=_row('Colour','<input type="color" value="'+(o.color||'#c9a84c')+'" oninput="scEdit(\'color\',this.value)">');
+    h+=_row('Size','<input type="number" min="0.5" step="0.5" style="width:64px" value="'+(o.size_cells||1)+'" oninput="scEdit(\'size_cells\',+this.value)"> cells');
+    h+=_row('Party','<label style="min-width:0"><input type="checkbox" '+(o.is_party?'checked':'')+' onchange="scEdit(\'is_party\',this.checked)"> drives shared vision</label>');
+    h+=_row('Vision','<label style="min-width:0"><input type="checkbox" '+(o.vision&&o.vision.enabled?'checked':'')+' onchange="scEditVision(\'enabled\',this.checked)"> on</label> <input type="number" min="0" step="1" style="width:58px" value="'+_cellsFromPx(o.vision&&o.vision.range)+'" oninput="scEditVision(\'range\',+this.value)"> cells (0=&#8734;)');
+    h+=_row('Art','<button class="btn btn-sm" onclick="scUploadTokenImage()">'+(o.image_ref?'Replace':'Upload')+'</button>'+(o.image_ref?' <button class="btn btn-sm btn-del" onclick="scClearArt()">Clear</button>':''));
+  } else {
+    h+='<div class="card-title">Marker</div>';
+    var types=['trap','hazard','difficult','note'];
+    h+=_row('Type','<select onchange="scEdit(\'type\',this.value)">'+types.map(function(t){return '<option '+(o.type===t?'selected':'')+'>'+t+'</option>';}).join('')+'</select>');
+    h+=_row('Colour','<input type="color" value="'+(o.color||'#c84a4a')+'" oninput="scEdit(\'color\',this.value)">');
+    h+=_row('Size','<input type="number" min="0.5" step="0.5" style="width:64px" value="'+(o.size_cells||1)+'" oninput="scEdit(\'size_cells\',+this.value)"> cells');
+    h+=_row('Label','<input type="text" value="'+_esc2(o.label)+'" oninput="scEdit(\'label\',this.value)">');
+    h+=_row('Hidden','<label style="min-width:0"><input type="checkbox" '+(o.hidden?'checked':'')+' onchange="scEdit(\'hidden\',this.checked)"> GM-only (off the table)</label>');
+  }
+  h+='<div class="row" style="margin-top:8px"><button class="btn btn-sm btn-del" onclick="sceneDeleteSel()">&#10005; Delete</button></div>';
+  el.innerHTML=h; el.style.display='block';
+}
+function scEdit(k,v){ var o=SC.sel&&_scFind(SC.sel.type,SC.sel.id); if(!o) return; o[k]=v; sceneSave(); sceneRender(); }
+function scClearArt(){ var o=SC.sel&&_scFind('token',SC.sel.id); if(!o) return; o.image_ref=null; o.kind='disc'; sceneSave(); sceneRender(); scInspect(); }
+function scEditVision(k,v){ var o=SC.sel&&_scFind('token',SC.sel.id); if(!o) return; o.vision=o.vision||{enabled:false,range:0};
+  if(k==='range') o.vision.range = v>0 ? v*((SC.scene.grid&&SC.scene.grid.ppg)||70) : 0; else o.vision[k]=v;
+  sceneSave(); sceneRender(); }
+function scUploadTokenImage(){ var o=SC.sel&&_scFind('token',SC.sel.id); if(!o) return;
+  var inp=document.getElementById('tokenImgInput');
+  inp.onchange=function(){ if(!inp.files||!inp.files.length) return; var fd=new FormData(); fd.append('file',inp.files[0]);
+    fetch('/scene/token-image',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
+      if(d.path){ o.image_ref=d.path; o.kind='image'; sceneSave(); sceneRender(); scInspect(); toast('Token art set'); }
+      else toast(d.error||'Upload failed'); inp.value=''; }).catch(function(){toast('Upload failed')}); };
+  inp.click(); }
+function _addDoor(a,b){ SC.scene.doors.push({id:'d'+Date.now().toString(36),points:[a,b],state:'closed',blocks_vision_when_closed:true}); sceneSave(); }
+function _tokenImg(ref){ if(!ref) return null; SC.imgs=SC.imgs||{}; var im=SC.imgs[ref];
+  if(im) return (im.complete&&im.naturalWidth)?im:null;
+  im=new Image(); im.onload=function(){sceneRender();}; im.src='/serve_media?path='+encodeURIComponent(ref); SC.imgs[ref]=im; return null; }
+function closePlayerView(){ document.getElementById('playerViewOverlay').classList.remove('show'); }
+
+/* ── render ── */
+function sceneRender(){ var ctx=SC.ctx,c=SC.canvas; if(!ctx) return;
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,c.width,c.height);
+  ctx.fillStyle='#0d0b08'; ctx.fillRect(0,0,c.width,c.height);
+  if(SC.backdrop&&SC.mapW) ctx.drawImage(SC.backdrop,SC.view.ox,SC.view.oy,SC.mapW*SC.view.scale,SC.mapH*SC.view.scale);
+  var s=SC.scene; if(!s) return;
+  if(s.fog&&s.fog.revealed&&s.fog.revealed.length){ ctx.save(); ctx.lineWidth=Math.max(1,1.5*SC.dpr);
+    ctx.fillStyle='rgba(90,168,74,0.12)'; ctx.strokeStyle='rgba(90,168,74,0.45)';
+    s.fog.revealed.forEach(function(pp){_fillPoly(ctx,pp);}); ctx.restore(); }
+  ctx.lineWidth=Math.max(1,2*SC.dpr);
+  ctx.strokeStyle='#e06a4a'; (s.walls||[]).forEach(function(w){_stroke(ctx,w.points);});
+  ctx.strokeStyle='#5a8aba'; (s.doors||[]).forEach(function(d){_stroke(ctx,d.points);});
+  if((SC.tool==='wall'||SC.tool==='door')&&SC.wallPts.length){ var wc=SC.tool==='door'?'#5a8aba':'#ffd24a'; ctx.strokeStyle=wc; _stroke(ctx,SC.wallPts);
+    SC.wallPts.forEach(function(p){var q=mapToScreen(p[0],p[1]);ctx.fillStyle=wc;ctx.beginPath();ctx.arc(q[0],q[1],4*SC.dpr,0,6.283);ctx.fill();}); }
+  (s.markers||[]).forEach(function(m){_drawMarker(ctx,m);});
+  (s.tokens||[]).forEach(function(t){_drawToken(ctx,t);});
+  if(SC.gesture&&SC.gesture.type==='fogrect'){ var a=mapToScreen(SC.gesture.start[0],SC.gesture.start[1]),b=mapToScreen(SC.gesture.cur[0],SC.gesture.cur[1]);
+    var rx=Math.min(a[0],b[0]),ry=Math.min(a[1],b[1]),rw=Math.abs(b[0]-a[0]),rh=Math.abs(b[1]-a[1]);
+    ctx.save(); ctx.fillStyle='rgba(90,168,74,0.18)'; ctx.strokeStyle='rgba(90,168,74,0.8)'; ctx.lineWidth=Math.max(1,2*SC.dpr);
+    ctx.fillRect(rx,ry,rw,rh); ctx.strokeRect(rx,ry,rw,rh); ctx.restore(); }
+}
+function _stroke(ctx,pts){ if(!pts||pts.length<2) return; ctx.beginPath();
+  var p0=mapToScreen(pts[0][0],pts[0][1]); ctx.moveTo(p0[0],p0[1]);
+  for(var i=1;i<pts.length;i++){var p=mapToScreen(pts[i][0],pts[i][1]);ctx.lineTo(p[0],p[1]);} ctx.stroke(); }
+function _drawToken(ctx,t){ var s=SC.scene, c=mapToScreen(t.x,t.y);
+  var r=Math.max(3,0.5*(t.size_cells||1)*(s.grid.ppg||70)*SC.view.scale);
+  if(t.is_party&&t.vision&&t.vision.enabled&&t.vision.range>0){ ctx.strokeStyle='rgba(255,220,120,0.25)';
+    ctx.beginPath(); ctx.arc(c[0],c[1],t.vision.range*SC.view.scale,0,6.283); ctx.stroke(); }
+  var img=(t.kind==='image'&&t.image_ref)?_tokenImg(t.image_ref):null;
+  if(img){ ctx.save(); ctx.beginPath(); ctx.arc(c[0],c[1],r,0,6.283); ctx.clip(); ctx.drawImage(img,c[0]-r,c[1]-r,2*r,2*r); ctx.restore(); }
+  else { ctx.beginPath(); ctx.arc(c[0],c[1],r,0,6.283); ctx.globalAlpha=0.9; ctx.fillStyle=t.color||'#c9a84c'; ctx.fill(); ctx.globalAlpha=1; }
+  ctx.lineWidth=Math.max(1,2*SC.dpr); ctx.strokeStyle=(SC.sel&&SC.sel.id===t.id)?'#fff':(t.is_party?'#5aa84a':'#201c14');
+  ctx.beginPath(); ctx.arc(c[0],c[1],r,0,6.283); ctx.stroke();
+  if(t.label&&!img){ ctx.fillStyle='#1a1714'; ctx.font='bold '+Math.max(8,r)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t.label,c[0],c[1]); } }
+function _drawMarker(ctx,m){ var s=SC.scene, c=mapToScreen(m.x,m.y);
+  var r=Math.max(4,(m.shape==='point'?0.35:0.5*(m.size_cells||1))*(s.grid.ppg||70)*SC.view.scale);
+  ctx.beginPath(); ctx.arc(c[0],c[1],r,0,6.283); ctx.globalAlpha=0.3; ctx.fillStyle=m.color||'#c84a4a'; ctx.fill(); ctx.globalAlpha=1;
+  ctx.lineWidth=Math.max(1,2*SC.dpr); ctx.strokeStyle=(SC.sel&&SC.sel.id===m.id)?'#fff':(m.color||'#c84a4a'); ctx.stroke();
+  if(m.hidden){ ctx.fillStyle='#fff'; ctx.font='bold '+Math.max(8,r)+'px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('?',c[0],c[1]); } }
+
+refreshStatus();refreshSources();refreshDisplayModes();refreshThemes();refreshIps();refreshMusic();browseFolder('sdcard','');sceneInit();
 setInterval(refreshStatus,5000);setInterval(refreshSources,10000);setInterval(refreshMusic,2500);
 </script>
 </body></html>

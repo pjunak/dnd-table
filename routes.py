@@ -11,9 +11,11 @@ no template for the kiosk page, no X11/xrandr, no RPi config.txt.
 """
 
 import json
+import os
 import queue
 import shutil
 import subprocess
+import tempfile
 import threading
 import logging
 from pathlib import Path
@@ -23,10 +25,13 @@ from flask import request, jsonify, render_template, Response, send_file
 
 import state
 import settings as settings_store
+import scene_store
+import mapinfo
 from config import MEDIA_DIRS, UPLOAD_DIR, PROTECTED_FOLDERS
 from media import get_file_type
 from files import detect_usb_drives, get_source_roots, browse_directory
 from updater import check_for_update, apply_update
+from dnd_display.scene import SceneData
 import display_modes
 import music
 
@@ -38,7 +43,7 @@ log = logging.getLogger(__name__)
 # Per-event-type coalescing: high-frequency UI events (overscan drag,
 # grid sliders) get drained before the new one is pushed, so a slow
 # consumer can't queue up dozens of intermediate states.
-_COALESCING_EVENTS = frozenset({"overscan", "grid", "volume"})
+_COALESCING_EVENTS = frozenset({"overscan", "grid", "volume", "scene"})
 
 _display_clients = []
 _clients_lock = threading.Lock()
@@ -125,6 +130,30 @@ def _persist():
         _persist_timer.start()
 
 
+# ─── Scene persistence (per-map sidecar, coalesced) ──────────────
+
+_scene_timer: "threading.Timer | None" = None
+_scene_lock = threading.Lock()
+
+
+def _persist_scene_now():
+    """Write the current scene to its map's sidecar.  From the debounce timer."""
+    if state.current_file_path and state.scene is not None:
+        scene_store.save(state.current_file_path, state.scene)
+
+
+def _persist_scene():
+    """Debounced sidecar save — coalesces a burst of authoring edits into one
+    disk write 500 ms after the last change."""
+    global _scene_timer
+    with _scene_lock:
+        if _scene_timer is not None:
+            _scene_timer.cancel()
+        _scene_timer = threading.Timer(_PERSIST_DEBOUNCE_S, _persist_scene_now)
+        _scene_timer.daemon = True
+        _scene_timer.start()
+
+
 # ─── Path safety ─────────────────────────────────────────────────
 
 def _path_in_allowed_roots(p: Path) -> bool:
@@ -205,12 +234,27 @@ def _play_on_display(filepath):
         "filename": filepath.name,
     })
 
+    # Load this map's interactive scene (walls/vision/tokens/fog/markers) and
+    # push it to the display; map dimensions feed map-pixel authoring.
+    w, h = mapinfo.dimensions(filepath, file_type)
+    state.map_size = [int(w), int(h)] if w and h else None
+    raw = scene_store.load(filepath)
+    sd = SceneData.from_payload(raw) if raw else SceneData()
+    sd.map_path = str(filepath)
+    if w and h:
+        sd.width, sd.height = int(w), int(h)
+    state.scene = sd.to_payload()
+    broadcast("scene", {"scene": sd.to_display_payload()})
+
 
 def _stop_display():
     """Stop display and broadcast stop event."""
     state.current_file = None
     state.current_file_path = None
     state.current_file_info = None
+    state.scene = None
+    state.map_size = None
+    broadcast("scene", {"scene": None})
     broadcast("stop")
 
 
@@ -239,6 +283,9 @@ def register_routes(app):
                 "file_path": state.current_file_path,
                 "file_type": get_file_type(state.current_file) if state.current_file else None,
                 "splash_theme": state.splash_theme,
+                "scene": (SceneData.from_payload(state.scene).to_display_payload()
+                          if state.scene else None),
+                "map_size": state.map_size,
             })
             yield f"data: {init}\n\n"
             try:
@@ -288,6 +335,7 @@ def register_routes(app):
             file_info=state.current_file_info,
             overscan=state.overscan_state,
             splash_theme=state.splash_theme,
+            map_size=state.map_size,
         )
 
     @app.route("/sources")
@@ -637,6 +685,86 @@ def register_routes(app):
         data = request.get_json() or {}
         level = max(0, min(100, int(data.get("level", 0))))
         return jsonify(music.set_volume(level / 100.0))
+
+    # ─── Scene (VTT overlay: walls / vision / tokens / fog / markers) ──
+
+    @app.route("/scene", methods=["GET"])
+    def scene_get():
+        """Full authoring scene for the current map (includes GM-only hidden
+        tokens/markers).  ``map_size`` lets the panel author in map pixels."""
+        return jsonify(scene=state.scene or {}, map_size=state.map_size)
+
+    @app.route("/scene", methods=["PUT"])
+    def scene_put():
+        """Replace the current map's scene.  Normalises via SceneData, stores
+        it, broadcasts the player-safe payload to the display, and persists to
+        the map's sidecar (debounced)."""
+        if not state.current_file_path:
+            return jsonify(error="no map loaded"), 409
+        data = request.get_json() or {}
+        sd = SceneData.from_payload(data.get("scene") or data)
+        sd.map_path = str(state.current_file_path)
+        if state.map_size:
+            sd.width, sd.height = int(state.map_size[0]), int(state.map_size[1])
+        state.scene = sd.to_payload()
+        broadcast("scene", {"scene": sd.to_display_payload()})
+        _persist_scene()
+        return jsonify(scene=state.scene)
+
+    @app.route("/scene/still")
+    def scene_still():
+        """A still backdrop of the current map for the authoring canvas — the
+        image file itself, or one extracted frame for a video map."""
+        if not state.current_file_path:
+            return jsonify(error="no map loaded"), 404
+        p = Path(state.current_file_path)
+        ftype = get_file_type(p.name)
+        if ftype == "image":
+            return send_file(str(p), conditional=True)
+        if ftype == "video":
+            out = os.path.join(tempfile.gettempdir(), "dnd-map-still.png")
+            if mapinfo.extract_still(p, out):
+                return send_file(out, mimetype="image/png")
+            return jsonify(error="could not extract frame"), 500
+        return jsonify(error="unsupported map type"), 400
+
+    @app.route("/scene/screenshot")
+    def scene_screenshot():
+        """Grab what's actually on the TV right now (via grim) — the GM's
+        'what the players see' preview, with fog/vision baked in."""
+        out = os.path.join(tempfile.gettempdir(), "dnd-grim.png")
+        env = os.environ.copy()
+        env.update(display_modes._wayland_env())
+        try:
+            r = subprocess.run(["grim", out], capture_output=True, text=True,
+                               timeout=5, env=env)
+        except FileNotFoundError:
+            return jsonify(error="grim not installed"), 500
+        except subprocess.TimeoutExpired:
+            return jsonify(error="grim timed out"), 500
+        if r.returncode != 0 or not os.path.exists(out):
+            return jsonify(error=r.stderr.strip() or "grim failed"), 500
+        return send_file(out, mimetype="image/png")
+
+    @app.route("/scene/token-image", methods=["POST"])
+    def scene_token_image():
+        """Upload token art (PNG) for an image token.  Saved under the SD
+        card's Tokens/ folder; returns the path (the token's ``image_ref``)
+        and a serve URL (for the panel to preview)."""
+        if "file" not in request.files:
+            return jsonify(error="No file"), 400
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify(error="No filename"), 400
+        if get_file_type(f.filename) != "image":
+            return jsonify(error="Token art must be an image"), 400
+        dest_dir = UPLOAD_DIR / "Tokens"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        safe = f.filename.replace("/", "_").replace("\\", "_")
+        dest = dest_dir / safe
+        f.save(str(dest))
+        return jsonify(path=str(dest),
+                       url="/serve_media?path=" + quote(str(dest), safe=""))
 
     @app.route("/api/ips")
     def api_ips():

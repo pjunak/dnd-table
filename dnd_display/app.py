@@ -26,12 +26,18 @@ import moderngl                       # noqa: E402
 from .compositor import Compositor    # noqa: E402
 from .layers import (                 # noqa: E402
     CalibrationLayer,
+    FogVisionLayer,
     GridLayer,
+    MarkerLayer,
     SplashLayer,
+    TokenLayer,
     VideoLayer,
 )
 from .network import get_hostname, get_local_ip   # noqa: E402
 from .themes import THEMES            # noqa: E402
+from .transform import MapTransform   # noqa: E402
+from .scene import SceneData, FOG_DYNAMIC   # noqa: E402
+from . import vision                  # noqa: E402
 
 
 # Where the Flask control plane publishes state events.  Always
@@ -88,11 +94,17 @@ class DndDisplay(pyglet.window.Window):
 
         self.video = VideoLayer(z_order=100)
         self.grid = GridLayer(z_order=200)
+        self.tokens = TokenLayer(z_order=300)
+        self.markers = MarkerLayer(z_order=350)
+        self.fog = FogVisionLayer(z_order=400)
         self.splash = SplashLayer(z_order=500)
         self.calibration = CalibrationLayer(z_order=950)
 
         self.compositor.add(self.video)
         self.compositor.add(self.grid)
+        self.compositor.add(self.tokens)
+        self.compositor.add(self.markers)
+        self.compositor.add(self.fog)
         self.compositor.add(self.splash)
         self.compositor.add(self.calibration)
         self.calibration.set_framebuffer_size(self.width, self.height)
@@ -119,6 +131,15 @@ class DndDisplay(pyglet.window.Window):
 
         # ── Playback state ──────────────────────────────────────────
         self._current_file_path: str | None = None
+
+        # ── Scene state (VTT overlay: walls/tokens/fog/markers) ─────
+        # Geometry is in map-image pixels; the shared MapTransform maps it
+        # onto the letterboxed map.  Layers that consume it are added in
+        # later workstreams; for now we hold the parsed scene + transform.
+        self._scene = None
+        self._map_size: tuple[int, int] | None = None
+        self._map_transform: MapTransform | None = None
+
         self._update_splash_visibility()
 
         # Address overlay — refreshed periodically so DHCP renews show up.
@@ -211,6 +232,57 @@ class DndDisplay(pyglet.window.Window):
         self.calibration.set_inset(top, bottom, left, right)
         self.calibration.set_framebuffer_size(self.width, self.height)
         self.calibration.visible = calibrating
+        # Inset changed → the map's on-screen rectangle moved; refresh the
+        # transform the overlay layers use to align with it.
+        self._rebuild_map_transform()
+
+    # ── Scene (VTT overlay) ──────────────────────────────────────
+
+    def set_scene(self, payload: dict | None) -> None:
+        """Apply the current map's scene (walls/doors/lights/tokens/fog/
+        markers) pushed from Flask.
+
+        Scene geometry is in map-image pixels; we (re)build the shared
+        ``MapTransform`` from the map's native size + the current inset
+        viewport so every overlay layer lines up with the letterboxed map.
+        """
+        self._scene = SceneData.from_payload(payload) if payload else None
+        if self._scene and self._scene.width > 0 and self._scene.height > 0:
+            self._map_size = (self._scene.width, self._scene.height)
+        self._rebuild_map_transform()
+        self._apply_scene()
+
+    def _rebuild_map_transform(self) -> None:
+        """Recompute the map-px → screen transform from the current map size
+        and inset viewport.  Cheap; safe on resize / overscan / scene change."""
+        if not self._map_size:
+            self._map_transform = None
+        else:
+            tw, th = self._map_size
+            self._map_transform = MapTransform(
+                tw, th, self.compositor.width, self.compositor.height)
+        # Overlay layers reuse this transform; refresh theirs without rebaking
+        # any textures (only the geometry mapping changed).
+        self.tokens.set_transform(self._map_transform)
+        self.markers.set_transform(self._map_transform)
+        self.fog.set_transform(self._map_transform)
+
+    def _apply_scene(self) -> None:
+        """Push the parsed scene + transform into the overlay layers, and
+        recompute vision (CPU) → fog mask."""
+        self.tokens.set_scene(self._scene, self._map_transform)
+        self.markers.set_scene(self._scene, self._map_transform)
+        if self._scene is not None:
+            fans = (vision.compute_scene_fans(self._scene)
+                    if self._scene.fog.mode == FOG_DYNAMIC else [])
+            self.fog.set_data(enabled=self._scene.fog.enabled, fans=fans,
+                              revealed=self._scene.fog.revealed,
+                              transform=self._map_transform)
+            log.info("Scene applied: %d walls, %d doors, %d tokens, %d markers, %d fans",
+                     len(self._scene.walls), len(self._scene.doors),
+                     len(self._scene.tokens), len(self._scene.markers), len(fans))
+        else:
+            self.fog.set_data(enabled=False, fans=[], revealed=[], transform=None)
 
     # ── Internal helpers ─────────────────────────────────────────
 
@@ -240,6 +312,7 @@ class DndDisplay(pyglet.window.Window):
         if hasattr(self, "compositor"):
             self.compositor.resize(width, height)
             self.calibration.set_framebuffer_size(width, height)
+            self._rebuild_map_transform()
 
     def on_draw(self):
         now = time.monotonic()
@@ -287,6 +360,8 @@ def _dispatch_event(window: "DndDisplay", data: dict) -> None:
             schedule(window.set_grid_state, data["grid"])
         if isinstance(data.get("overscan"), dict):
             schedule(window.set_overscan, data["overscan"])
+        if isinstance(data.get("scene"), dict):
+            schedule(window.set_scene, data["scene"])
         if data.get("file_path"):
             schedule(window.play_file, data["file_path"])
         else:
@@ -315,6 +390,10 @@ def _dispatch_event(window: "DndDisplay", data: dict) -> None:
             schedule(window.show_test_pattern)
         else:
             schedule(window.stop_test_pattern)
+        return
+
+    if evt == "scene":
+        schedule(window.set_scene, data.get("scene"))
         return
 
     if evt == "grid":

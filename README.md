@@ -1,6 +1,6 @@
 # DnD Table
 
-A TV mounted in a D&D gaming table, driven by a small x86 PC running Debian. The Game Master controls maps, ambience, and overlays from a phone or tablet on the same network; the table itself shows a slowly-rotating procedural D20 splash when nothing else is playing.
+A TV mounted in a D&D gaming table, driven by a small x86 PC running Debian. The Game Master controls maps, ambience, fog of war, vision, and tokens from a phone or tablet on the same network; the table itself shows a slowly-rotating procedural D20 splash when nothing else is playing.
 
 ![status: works on my table](https://img.shields.io/badge/status-works%20on%20my%20table-c9a84c)
 
@@ -8,6 +8,7 @@ A TV mounted in a D&D gaming table, driven by a small x86 PC running Debian. The
 
 - Plays map images / videos fullscreen with aspect-correct letterboxing and looping
 - Overlays a calibrated square or pointy-top hex grid (DPI calibration in the panel)
+- **Battle-map overlays** — fog of war with dynamic line-of-sight vision (walls block sight), token position tracking (disc or image tokens), and trap / environment markers, all authored on a still of the map from the panel
 - Acts as a remote audio output for [pjunak/music](https://github.com/pjunak/music): plays whatever's on the music server through the table's speakers, with on/off · volume · mute from the panel
 - Animates a 3D D20 splash when idle, with 5 selectable themes (arcane, flame, storm, ancient, verdant) and Elder Futhark runes
 - Self-updates from GitHub via the panel ("Check for Updates" → "Update & Restart")
@@ -69,7 +70,7 @@ sudo reboot
 
 The control panel auto-loads at `http://dndtable.local` from any device on the same network (port 80 redirects to Flask on 5000).
 
-- **Table tab** — pick a Map, control the Music output (on/off, volume, mute), toggle the grid
+- **Table tab** — the live map canvas: choose a Map, author fog / walls / tokens / markers on a still of it, control the Music output, and toggle the grid
 - **Library tab** — upload / rename / delete files on the SD card; browse USB drives
 - **Styles tab** — pick a splash theme; preview swatches show face / rune / rim colors over the theme's actual backdrop
 - **Settings tab** — pick display mode, run a display test pattern, calibrate safe area + grid DPI, see the device's network addresses, check for updates, reboot/shutdown
@@ -80,6 +81,22 @@ The control panel auto-loads at `http://dndtable.local` from any device on the s
 |-----|--------------|
 | `T` | Cycle splash themes |
 | `Esc` / `Q` | Exit the display app (greetd will restart it) |
+
+## Battle maps — fog, vision, tokens & markers
+
+The **Table tab** is a map-authoring canvas. Because a map is a static image or a looping video, the panel works on a *still* of it (`/scene/still` — the image itself, or one extracted video frame) while the table renders the live overlays. Everything is saved per-map in a `<map>.scene.json` sidecar and pushed to the display over SSE; geometry is stored in **map-image pixels**, so it stays aligned under any resolution or letterboxing.
+
+From the tool palette you can:
+
+- **Tokens** — place / drag / delete; a token is a coloured disc with a label, or an uploaded image. Mark some as **party** (they drive the shared reveal) and give them a **vision** range.
+- **Walls** & **doors** — draw sight-blocking lines (doors can be open/closed). They feed the vision engine but aren't drawn on the table.
+- **Fog of war** — toggle it on, then either let **dynamic vision** compute what the party sees (walls cast shadows; areas no party token can see stay dark), or switch the fog tool to **manual** and drag-reveal regions.
+- **Markers** — traps / hazards / difficult terrain / notes. Hidden markers are GM-only and never reach the table.
+- **Player View** (👁) grabs a screenshot of the actual TV so you can confirm what the players see.
+
+### Importing maps from other VTTs
+
+Scenes use one canonical model (`dnd_display/scene.py`) that mirrors the **Universal VTT** schema (walls = line-of-sight, doors = portals, lights, grid). Importers live in `dnd_display/importers/` behind a single `SceneImporter` interface — a UVTT / `.dd2vtt` adapter ships today; Foundry, Roll20, or a custom format are each just another adapter, with nothing else in the engine changing.
 
 ## Music output
 
@@ -123,6 +140,9 @@ It still wants a Wayland session and a working GL 3.3 context. To run just the F
 - `routes.py` — REST + SSE; **all path-touching endpoints validate against an allowlist** (`_path_in_allowed_roots`)
 - `music.py` — proxies the local headless music-output client's control surface (the panel's `/music/*` routes)
 - `dnd_display/app.py` — pyglet window + SSE subscriber + dispatcher
+- `dnd_display/scene.py` — canonical scene model (walls / doors / tokens / fog / markers, in map pixels); `importers/` translate other VTT formats into it
+- `dnd_display/vision.py` — pure visibility-polygon engine (angular sweep), unit-tested in `tests/`; `transform.py` is the one map-pixel→screen transform shared by the video + overlay layers
+- `dnd_display/layers/{tokens,markers,fog}.py` — battle-map overlay layers (fog/vision composited above tokens)
 - `dnd_display/compositor.py` — layer stack + safe-area inset viewport
 - `dnd_display/gst_pipeline.py` — GStreamer pipelines built via `ElementFactory` (paths are passed as properties, never interpolated into a launch string)
 - `dnd_display/themes.py` — splash themes as pure data; add a `SplashTheme(...)` to the registry to ship a new one
@@ -158,6 +178,7 @@ It'll appear in the Styles tab automatically (the panel reads from `/api/splash/
 | Video plays silently | Audio sink isn't wired into the video pipeline yet | By design; table sound comes from the music output, not map videos |
 | Music card shows **Output offline** | `music-output.service` down, or wrong `MUSIC_SERVER_URL` | `sudo systemctl status music-output`; check `/etc/music-output.env`, then `sudo systemctl restart music-output` |
 | Not sure if a glitch is the TV or the app | — | **Settings → Display Test** shows SMPTE bars straight from GStreamer; if they look wrong too, it's the TV / HDMI link, not the media |
+| Map goes all black after enabling **Fog** | Dynamic fog, but no party token has vision yet | Place a token, mark it **Party**, enable its **Vision** — or switch the fog tool to **Manual** and reveal areas with the brush |
 
 ## Project status
 

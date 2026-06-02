@@ -15,6 +15,7 @@ import moderngl
 
 from ..compositor import Layer
 from ..gst_pipeline import VideoPipeline
+from ..transform import aspect_scale
 
 log = logging.getLogger(__name__)
 
@@ -110,25 +111,11 @@ class VideoLayer(Layer):
             self._tex.write(data)
 
     def _compute_aspect_scale(self) -> tuple[float, float]:
-        """Letterbox/pillarbox scale for the textured quad.
-
-        The quad is at NDC corners (-1,-1)..(1,1); multiplying ``in_pos``
-        by these values shrinks it along whichever axis would otherwise
-        stretch the source frame.  Returns (1, 1) until both viewport and
-        texture sizes are known.
-        """
+        """Letterbox/pillarbox scale for the textured quad — delegates to the
+        shared ``transform.aspect_scale`` so overlay layers (tokens, fog,
+        markers) stay pixel-aligned with the map under the same fit."""
         tw, th = self._tex_size
-        vw, vh = self.width, self.height
-        if tw <= 0 or th <= 0 or vw <= 0 or vh <= 0:
-            return 1.0, 1.0
-        viewport_aspect = vw / vh
-        video_aspect = tw / th
-        if video_aspect > viewport_aspect:
-            # Video wider than viewport — fit width, letterbox top/bottom.
-            return 1.0, viewport_aspect / video_aspect
-        else:
-            # Video taller than viewport — fit height, pillarbox left/right.
-            return video_aspect / viewport_aspect, 1.0
+        return aspect_scale(tw, th, self.width, self.height)
 
     def render(self) -> None:
         if self._tex is None or self._prog is None or self._vao is None:

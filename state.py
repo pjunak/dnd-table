@@ -57,3 +57,14 @@ display_mode_pref: str | None = None
 # The native display app reads this via the SSE bridge and on its
 # own startup (restored from settings.json by main.py).
 splash_theme: str = "arcane"
+
+# ─── Scene (per-map VTT layer) ───────────────────────────────────
+# The current map's interactive scene as a SceneData payload dict — walls,
+# doors, lights, tokens, fog, markers — or None when no map/scene is loaded.
+# Persisted per-map by scene_store (sidecar .scene.json) and pushed to the
+# native display via the `scene` SSE event.
+scene = None
+
+# Native pixel size (width, height) of the current map, or None.  Authoring
+# happens in map-pixel coordinates, so the panel and display both need this.
+map_size = None
