@@ -7,8 +7,16 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Source+Sans+3:wght@300;400;600&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#1a1714;--surface:#242019;--border:#3a3428;--gold:#c9a84c;--gold-dim:#a48740;
-  --text:#e8e0d0;--text-dim:#a89a82;--red:#c84a4a;--green:#5aa84a;--blue:#5a8aba;--purple:#b06ab0;--orange:#d99a4a}
+:root{
+  /* Surfaces */    --bg:#1a1714;--surface:#242019;--surface-active:#2a2519;--canvas-bg:#0d0b08;
+  /* Lines */       --border:#3a3428;
+  /* Brand */       --gold:#c9a84c;--gold-dim:#a48740;--gold-bright:#e2c46a;
+  /* Text */        --text:#e8e0d0;--text-dim:#a89a82;
+  /* Semantic */    --red:#c84a4a;--green:#5aa84a;--blue:#5a8aba;--purple:#b06ab0;
+  /* Radius scale */--r-sm:4px;--r-md:6px;--r-lg:8px;--r-xl:10px}
+/* Reusable secondary-note paragraph (was re-inlined ~10× as
+   font-size:0.8em;color:var(--text-dim)).  Margins stay per-instance. */
+.note{font-size:0.8em;color:var(--text-dim)}
 body{font-family:'Source Sans 3',sans-serif;background:var(--bg);color:var(--text);
   min-height:100vh;padding:12px;max-width:800px;margin:0 auto}
 h1{font-family:'Cinzel',serif;color:var(--gold);text-align:center;font-size:1.6em;
@@ -24,6 +32,7 @@ h1{font-family:'Cinzel',serif;color:var(--gold);text-align:center;font-size:1.6e
   letter-spacing:0.04em;user-select:none;flex-shrink:0}
 .main-tab:hover{color:var(--gold-dim)}
 .main-tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.main-tab:focus-visible{outline:2px solid var(--gold);outline-offset:-4px;border-radius:var(--r-sm)}
 .tab-content{display:none}.tab-content.active{display:block}
 
 /* Cards */
@@ -33,7 +42,7 @@ h1{font-family:'Cinzel',serif;color:var(--gold);text-align:center;font-size:1.6e
   letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;cursor:default}
 .card-title.clickable{cursor:pointer;color:var(--gold)}
 .card-title.clickable::after{content:" \203A";color:var(--gold-dim);font-weight:600;margin-left:2px}
-.card-title.clickable:hover,.card-title.clickable:active{color:#e2c46a}
+.card-title.clickable:hover,.card-title.clickable:active{color:var(--gold-bright)}
 .card-title.clickable:hover::after{color:var(--gold)}
 .card-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .card-header .card-title{margin-bottom:0;flex-shrink:0;width:105px}
@@ -47,7 +56,7 @@ h1{font-family:'Cinzel',serif;color:var(--gold);text-align:center;font-size:1.6e
   transition:all 0.2s;white-space:nowrap;user-select:none}
 .btn:hover{border-color:var(--gold-dim);color:var(--gold)}
 .btn:active{transform:scale(0.97)}
-.btn.active{border-color:var(--gold);color:var(--gold);background:#2a2519}
+.btn.active{border-color:var(--gold);color:var(--gold);background:var(--surface-active)}
 .btn-stop{border-color:var(--red);color:var(--red)}
 .btn-stop:hover{background:var(--red);color:var(--text)}
 .btn-play{border-color:var(--green);color:var(--green)}
@@ -182,13 +191,6 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   padding:8px 20px;border-radius:8px;font-size:0.85em;transition:transform 0.3s;z-index:300}
 .toast.show{transform:translateX(-50%) translateY(0)}
 
-/* Disabled / unreleased card state — dim everything and block taps */
-.card.unreleased{opacity:0.45;position:relative}
-.card.unreleased::after{content:"Coming soon";position:absolute;top:8px;right:12px;
-  font-size:0.7em;color:var(--gold-dim);letter-spacing:0.08em;text-transform:uppercase;
-  font-family:'Cinzel',serif}
-.card.unreleased input,.card.unreleased button{pointer-events:none}
-
 /* Splash themes — card preview uses the theme's own backdrop + swatch */
 .theme-card{display:flex;align-items:center;gap:12px;padding:12px 14px;
   border:1px solid var(--border);border-radius:8px;cursor:pointer;
@@ -291,11 +293,11 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   justify-content:center;border:1px solid var(--border);border-radius:8px;background:var(--surface);
   color:var(--text-dim);cursor:pointer;user-select:none;transition:all 0.15s}
 .scene-tools .tool:hover{border-color:var(--gold-dim);color:var(--gold)}
-.scene-tools .tool.active{border-color:var(--gold);color:var(--gold);background:#2a2519}
+.scene-tools .tool.active{border-color:var(--gold);color:var(--gold);background:var(--surface-active)}
 .scene-spacer{flex:1}
 .scene-actions{display:flex;gap:4px}
-.canvas-wrap{position:relative;width:100%;height:56vh;min-height:260px;background:#0d0b08;
-  border:1px solid var(--border);border-radius:10px;overflow:hidden;touch-action:none;
+.canvas-wrap{position:relative;width:100%;height:56vh;min-height:260px;background:var(--canvas-bg);
+  border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden;touch-action:none;
   margin-bottom:12px}
 #sceneCanvas{display:block;width:100%;height:100%;cursor:crosshair}
 .canvas-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
@@ -435,10 +437,10 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
     <span class="chev" id="uploadChev">&#9662;</span>
   </div>
   <div class="upload collapsed" id="uploadZone">
-    <input type="file" id="fileInput" accept="image/*,video/*" multiple
+    <input type="file" id="fileInput" accept="image/*,video/*,.dd2vtt,.uvtt,.df2vtt" multiple
       onchange="uploadFiles(this.files)">
-    <div class="lbl">Drop maps or videos here</div>
-    <div class="hint">Uploaded to current folder on SD card</div>
+    <div class="lbl">Drop maps, videos, or .dd2vtt files here</div>
+    <div class="hint">Media &#8594; current folder &middot; VTT maps &#8594; Maps/ (walls &amp; lights imported)</div>
     <div class="pbar" id="pbar"><div class="fill" id="pfill"></div></div>
   </div>
 
@@ -455,7 +457,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
 
   <div class="card">
     <div class="card-title">Splash Screen Theme</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:10px">
+    <p class="note" style="margin-bottom:10px">
       Choose the look of the rotating D20 splash. The selection is saved
       and applies immediately on the table.
     </p>
@@ -496,7 +498,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   <!-- Display Test -->
   <div class="card">
     <div class="card-title">Display Test</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+    <p class="note" style="margin-bottom:8px">
       Show SMPTE colour bars on the table to check the HDMI link, colour, and
       geometry without loading a file. Tap again to return to the current scene.
     </p>
@@ -508,7 +510,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   <!-- Safe Area -->
   <div class="card">
     <div class="card-title">Safe Area</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+    <p class="note" style="margin-bottom:8px">
       Inset the rendered scene from the edges of the screen — use this if the TV crops the picture.
       Adjust until the red border disappears behind the TV edges and the green border is just visible.
     </p>
@@ -568,7 +570,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
        and the grid origin offset. -->
   <div class="card">
     <div class="card-title">Grid Calibration</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:8px">
+    <p class="note" style="margin-bottom:8px">
       Adjust origin so the grid lines up with a physical reference (token, ruler, etc.).
       Use the 1-inch calibration to map a measured length to PPI.
     </p>
@@ -612,7 +614,7 @@ select{padding:6px;border:1px solid var(--border);border-radius:6px;background:v
   <!-- Network -->
   <div class="card">
     <div class="card-title">Network</div>
-    <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:6px">
+    <p class="note" style="margin-bottom:6px">
       Open the control panel from any device on the same network at:
     </p>
     <div id="net-addrs" style="font-size:0.9em;color:var(--text);font-family:monospace;line-height:1.6">Loading…</div>
@@ -668,9 +670,23 @@ var curSource='sdcard',curPath='';
 
 /* ─── Tabs ─── */
 function switchTab(t){
-  document.querySelectorAll('.main-tab').forEach(function(el){el.classList.toggle('active',el.dataset.tab===t)});
+  document.querySelectorAll('.main-tab').forEach(function(el){
+    var on=el.dataset.tab===t;
+    el.classList.toggle('active',on);
+    el.setAttribute('aria-selected',on?'true':'false');
+  });
   document.querySelectorAll('.tab-content').forEach(function(el){el.classList.toggle('active',el.id==='tab-'+t)});
 }
+/* Keyboard a11y for the main tab bar.  The tabs are <div>s (to match this
+   file's inline-onclick idiom); wire role/tabindex + Enter/Space so they're
+   operable without a pointer.  Markup is untouched, so layout can't shift. */
+document.querySelectorAll('.main-tab').forEach(function(el){
+  el.setAttribute('role','tab');
+  el.setAttribute('tabindex','0');
+  el.addEventListener('keydown',function(e){
+    if(e.key==='Enter'||e.key===' '){e.preventDefault();switchTab(el.dataset.tab);}
+  });
+});
 
 /* ─── Toast ─── */
 function toast(m){var t=document.getElementById('toast');t.textContent=m;t.classList.add('show');
@@ -1104,6 +1120,10 @@ function refreshIps(){
 var Z=document.getElementById('uploadZone');
 var UB=document.getElementById('uploadBar');
 
+/* Universal VTT exports aren't playable media — they go to /scene/import,
+   which decodes the embedded map into Maps/ and plays it with walls/lights. */
+function isVtt(name){return /\.(dd2vtt|uvtt|df2vtt)$/i.test(name||'')}
+
 function toggleUpload(force){
   var expanded = (force === undefined) ? Z.classList.contains('collapsed') : !!force;
   Z.classList.toggle('collapsed', !expanded);
@@ -1140,12 +1160,15 @@ function uploadFiles(files){
       return;
     }
     bar.style.display='block';fill.style.width='0%';
-    var form=new FormData();form.append('file',files[i]);form.append('folder',curPath);
-    var xhr=new XMLHttpRequest();xhr.open('POST','/upload');
+    var vtt=isVtt(files[i].name);
+    var form=new FormData();form.append('file',files[i]);
+    if(!vtt)form.append('folder',curPath);   /* VTT imports always land in Maps/ */
+    var xhr=new XMLHttpRequest();xhr.open('POST',vtt?'/scene/import':'/upload');
     xhr.upload.onprogress=function(e){if(e.lengthComputable)fill.style.width=(e.loaded/e.total*100)+'%'};
     xhr.onload=function(){
-      if(xhr.status===200){var d=JSON.parse(xhr.responseText);toast('Uploaded: '+d.filename)}
-      else toast('Upload failed');i++;next()};
+      if(xhr.status===200){var d=JSON.parse(xhr.responseText);toast((vtt?'Imported: ':'Uploaded: ')+d.filename)}
+      else{var msg='Upload failed';try{msg=JSON.parse(xhr.responseText).error||msg}catch(e){}toast(msg)}
+      i++;next()};
     xhr.onerror=function(){toast('Upload failed');i++;next()};
     xhr.send(form)
   }

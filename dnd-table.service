@@ -8,6 +8,11 @@ Type=simple
 User=dndtable
 WorkingDirectory=/opt/dnd-table
 
+# Share the music-output client's config (chiefly MUSIC_CONTROL_PORT) so the
+# Flask proxy in music.py talks to the same localhost port the client serves.
+# Optional ('-') so boxes without the music output still start cleanly.
+EnvironmentFile=-/etc/music-output.env
+
 # Redirect external port 80 → Flask 5000 (so phones can hit http://dndtable.local)
 # Re-applied on every start so the rules survive iptables flush/reboot.
 ExecStartPre=+/bin/bash -c '/usr/sbin/iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 5000 2>/dev/null || /usr/sbin/iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 5000'

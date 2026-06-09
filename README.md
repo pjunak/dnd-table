@@ -96,7 +96,9 @@ From the tool palette you can:
 
 ### Importing maps from other VTTs
 
-Scenes use one canonical model (`dnd_display/scene.py`) that mirrors the **Universal VTT** schema (walls = line-of-sight, doors = portals, lights, grid). Importers live in `dnd_display/importers/` behind a single `SceneImporter` interface — a UVTT / `.dd2vtt` adapter ships today; Foundry, Roll20, or a custom format are each just another adapter, with nothing else in the engine changing.
+Scenes use one canonical model (`dnd_display/scene.py`) that mirrors the **Universal VTT** schema (walls = line-of-sight, doors = portals, lights, grid). The import *engine* lives in `dnd_display/importers/` behind a single `SceneImporter` interface (unit-tested): a UVTT / `.dd2vtt` adapter translates that format into the canonical model, and Foundry, Roll20, or a custom format are each just another adapter, with nothing else in the engine changing.
+
+**Using it:** drop a `.dd2vtt` / `.uvtt` / `.df2vtt` onto the Library upload area (or pick it from the file dialog). The panel POSTs it to `POST /scene/import`, which decodes the embedded image into the SD card's `Maps/` folder, translates walls / doors / lights into the map's `.scene.json` sidecar, and starts playing it — vision and lighting come through immediately. The path-safe file handling lives in the pure `scene_import` module (`importers.image_bytes()` for the picture, `importers.load_scene()` for the geometry); `/upload` still rejects these files since a `.dd2vtt` is a scene description, not playable media.
 
 ## Music output
 
@@ -134,10 +136,22 @@ DND_WINDOWED=1 python -m dnd_display
 
 It still wants a Wayland session and a working GL 3.3 context. To run just the Flask side somewhere portable, point your browser at `http://localhost:5000` — the control panel works without the native app (you just won't see anything on a TV).
 
+### Tests
+
+The unit suite is deliberately **pure** — no Flask, pyglet, or GStreamer — so it runs on any box (including Windows/macOS) with nothing but `pytest`:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+It covers the parts where a bug is expensive: the path-containment guard (`tests/test_paths.py` — traversal/escape), the scene model's hidden-token/marker stripping (`tests/test_scene.py` — a table screenshot must never leak a GM secret), the UVTT coordinate transform, settings deep-merge, media classification, and the vision geometry. CI (`.github/workflows/ci.yml`) runs `compileall` across **every** module — including the GL/GStreamer display code it can't import — plus the suite, on every push and PR, so a syntax error can't reach the table's self-updater.
+
 ### Key files
 
 - `main.py` — Flask entry; reads `settings.json`, registers routes
-- `routes.py` — REST + SSE; **all path-touching endpoints validate against an allowlist** (`_path_in_allowed_roots`)
+- `routes.py` — REST + SSE; **every path-touching endpoint routes through one containment guard** so a crafted path can't escape the media roots
+- `paths.py` — that guard (`safe_resolve` / `is_within_any`): resolves `..`/symlinks first, then checks containment on the *resolved* paths (a prefix-string check would let `…/dnd_media_evil` through). Pure + unit-tested in `tests/test_paths.py`
 - `music.py` — proxies the local headless music-output client's control surface (the panel's `/music/*` routes)
 - `dnd_display/app.py` — pyglet window + SSE subscriber + dispatcher
 - `dnd_display/scene.py` — canonical scene model (walls / doors / tokens / fog / markers, in map pixels); `importers/` translate other VTT formats into it
@@ -147,7 +161,7 @@ It still wants a Wayland session and a working GL 3.3 context. To run just the F
 - `dnd_display/gst_pipeline.py` — GStreamer pipelines built via `ElementFactory` (paths are passed as properties, never interpolated into a launch string)
 - `dnd_display/themes.py` — splash themes as pure data; add a `SplashTheme(...)` to the registry to ship a new one
 - `dnd_display/layers/splash.py` — D20 shaders with branched `face_effect` (smooth / cracked stone / mossy stone) and `rune_effect` (solid / flaming / lightning)
-- `templates/control.html` — single file, no build step; Cinzel + Source Sans 3, gold-on-dark identity
+- `templates/control.html` — single file, no build step; Cinzel + Source Sans 3, gold-on-dark identity. Colors and the radius scale are CSS custom properties in `:root` (`--gold`, `--surface`, `--r-md`, …); prefer a token over a raw hex. Note the canvas authoring tool draws with its own literal palette in JS — that's a known divergence, not a free-for-all
 
 ### Adding a splash theme
 

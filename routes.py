@@ -30,8 +30,10 @@ import mapinfo
 from config import MEDIA_DIRS, UPLOAD_DIR, PROTECTED_FOLDERS
 from media import get_file_type
 from files import detect_usb_drives, get_source_roots, browse_directory
+from paths import safe_resolve, is_within_any
 from updater import check_for_update, apply_update
 from dnd_display.scene import SceneData
+import scene_import
 import display_modes
 import music
 
@@ -157,24 +159,15 @@ def _persist_scene():
 # ─── Path safety ─────────────────────────────────────────────────
 
 def _path_in_allowed_roots(p: Path) -> bool:
-    """True iff ``p`` resolves to a file under a browsable source root.
+    """True iff ``p`` resolves to a path under a browsable source root.
 
     Browsable sources = the SD-card upload dir + any currently-mounted
     USB drive (as enumerated by ``files.get_source_roots()``).  The
     play / serve endpoints all defer here so a malicious POST can't
-    point GStreamer / send_file at arbitrary filesystem paths.
+    point GStreamer / send_file at arbitrary filesystem paths.  Delegates
+    to the shared :func:`paths.is_within_any` guard.
     """
-    try:
-        resolved = p.resolve()
-    except OSError:
-        return False
-    for root in get_source_roots().values():
-        try:
-            resolved.relative_to(root.resolve())
-            return True
-        except ValueError:
-            continue
-    return False
+    return is_within_any(get_source_roots().values(), p) is not None
 
 
 def _rgb_to_hex(t):
@@ -363,16 +356,11 @@ def register_routes(app):
     @app.route("/mkdir", methods=["POST"])
     def mkdir():
         data = request.get_json()
-        rel_path = data.get("path", "")
         source = data.get("source", "sdcard")
         if source != "sdcard":
             return jsonify(error="Can only create folders on SD card"), 403
-        if ".." in rel_path or rel_path.startswith("/"):
-            return jsonify(error="Invalid path"), 400
-        target = UPLOAD_DIR / rel_path
-        try:
-            target.resolve().relative_to(UPLOAD_DIR.resolve())
-        except ValueError:
+        target = safe_resolve(UPLOAD_DIR, data.get("path", ""))
+        if target is None:
             return jsonify(error="Invalid path"), 400
         target.mkdir(parents=True, exist_ok=True)
         return jsonify(status="created")
@@ -417,17 +405,12 @@ def register_routes(app):
     @app.route("/play_folder", methods=["POST"])
     def play_folder():
         data = request.get_json() or {}
-        rel_path = data.get("path", "")
         source = data.get("source", "sdcard")
-        if ".." in rel_path or rel_path.startswith("/"):
-            return jsonify(error="Invalid path"), 400
         roots = get_source_roots()
         if source not in roots:
             return jsonify(error="Source not found"), 404
-        target = (roots[source] / rel_path).resolve()
-        try:
-            target.relative_to(roots[source].resolve())
-        except ValueError:
+        target = safe_resolve(roots[source], data.get("path", ""))
+        if target is None:
             return jsonify(error="Forbidden"), 403
         if not target.is_dir():
             return jsonify(error="Not a folder"), 404
@@ -448,13 +431,17 @@ def register_routes(app):
     @app.route("/delete", methods=["POST"])
     def delete():
         data = request.get_json()
-        filepath = Path(data.get("path", ""))
-        if not str(filepath).startswith(str(MEDIA_DIRS["sdcard"])):
+        # Resolve under the SD card and reject anything that escapes it — a
+        # bare ``startswith`` would let ``…/dnd_media/../../home/…`` through and
+        # unlink files outside the media root (the dndtable user owns its own
+        # home, settings, and ssh keys).  safe_resolve collapses ``..`` first.
+        target = safe_resolve(MEDIA_DIRS["sdcard"], data.get("path", ""))
+        if target is None:
             return jsonify(error="Cannot delete from external media"), 403
-        if filepath.exists():
-            if state.current_file == filepath.name:
+        if target.exists() and target.is_file():
+            if state.current_file == target.name:
                 _stop_display()
-            filepath.unlink()
+            target.unlink()
         return jsonify(status="deleted")
 
     @app.route("/delete_folder", methods=["POST"])
@@ -464,15 +451,11 @@ def register_routes(app):
         source = data.get("source", "sdcard")
         if source != "sdcard":
             return jsonify(error="Cannot delete from external media"), 403
-        if ".." in rel_path or rel_path.startswith("/"):
-            return jsonify(error="Invalid path"), 400
         parts = Path(rel_path).parts
         if len(parts) == 1 and parts[0] in PROTECTED_FOLDERS:
             return jsonify(error="Cannot delete protected folder"), 403
-        target = UPLOAD_DIR / rel_path
-        try:
-            target.resolve().relative_to(UPLOAD_DIR.resolve())
-        except ValueError:
+        target = safe_resolve(UPLOAD_DIR, rel_path)
+        if target is None:
             return jsonify(error="Invalid path"), 400
         if target.exists() and target.is_dir():
             shutil.rmtree(str(target))
@@ -483,23 +466,19 @@ def register_routes(app):
     @app.route("/rename", methods=["POST"])
     def rename():
         data = request.get_json()
-        old_path = data.get("path", "")
         new_name = data.get("new_name", "").strip()
-        if not old_path or not new_name:
+        if not data.get("path") or not new_name:
             return jsonify(error="Missing path or new_name"), 400
         if "/" in new_name or "\\" in new_name or ".." in new_name:
             return jsonify(error="Invalid name"), 400
 
-        old = Path(old_path)
-        if not str(old).startswith(str(MEDIA_DIRS["sdcard"])):
+        old = safe_resolve(UPLOAD_DIR, data.get("path", ""))
+        if old is None:
             return jsonify(error="Can only rename on SD card"), 403
         if not old.exists():
             return jsonify(error="Not found"), 404
 
-        try:
-            rel = old.resolve().relative_to(UPLOAD_DIR.resolve())
-        except ValueError:
-            return jsonify(error="Invalid path"), 400
+        rel = old.relative_to(UPLOAD_DIR.resolve())
         if len(rel.parts) == 1 and rel.parts[0] in PROTECTED_FOLDERS:
             return jsonify(error="Cannot rename protected folder"), 403
 
@@ -765,6 +744,51 @@ def register_routes(app):
         f.save(str(dest))
         return jsonify(path=str(dest),
                        url="/serve_media?path=" + quote(str(dest), safe=""))
+
+    @app.route("/scene/import", methods=["POST"])
+    def scene_import_route():
+        """Import a Universal VTT map (``.dd2vtt`` / ``.uvtt`` / ``.df2vtt``):
+        decode its embedded image into the SD card's ``Maps/`` folder,
+        translate walls / doors / lights into the map's ``.scene.json``
+        sidecar, and start playing it.
+
+        This is the *only* entry point to the import engine — ``/upload``
+        still rejects these files (they aren't ``ALLOWED_EXTENSIONS`` media).
+        The heavy lifting (path-safe image write, geometry transform) lives in
+        the pure ``scene_import`` module; this route is just upload plumbing.
+        """
+        if "file" not in request.files:
+            return jsonify(error="No file"), 400
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify(error="No filename"), 400
+        if not scene_import.is_vtt_filename(f.filename):
+            return jsonify(error="Not a VTT file (.dd2vtt/.uvtt/.df2vtt)"), 400
+
+        maps_dir = UPLOAD_DIR / "Maps"
+        image_name = scene_import.derive_image_name(f.filename)
+
+        # The importer parses from a path, so spool the upload to a temp file
+        # first; remove it once we've decoded the image + geometry out of it.
+        fd, tmp = tempfile.mkstemp(suffix=Path(f.filename).suffix)
+        os.close(fd)
+        try:
+            f.save(tmp)
+            dest, sd = scene_import.import_vtt(tmp, maps_dir, image_name)
+        except scene_import.SceneImportError as e:
+            return jsonify(error=str(e)), 400
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+        # Persist the translated scene to the map's sidecar *before* playing:
+        # _play_on_display reloads the sidecar and re-sizes it against the
+        # saved PNG, so walls/doors/lights come straight through.
+        scene_store.save(dest, sd.to_payload())
+        _play_on_display(dest)
+        return jsonify(status="playing", filename=dest.name, path=str(dest))
 
     @app.route("/api/ips")
     def api_ips():

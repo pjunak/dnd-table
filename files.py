@@ -7,6 +7,7 @@ from pathlib import Path
 
 from config import MEDIA_DIRS, UPLOAD_DIR, PROTECTED_FOLDERS
 from media import get_file_type
+from paths import safe_resolve
 
 
 # ─── USB / source detection ──────────────────────────────────────
@@ -41,18 +42,8 @@ def browse_directory(source, rel_path):
         return None
 
     root = roots[source]
-    if ".." in rel_path or rel_path.startswith("/"):
-        return None
-
-    target = root / rel_path if rel_path else root
-    target = target.resolve()
-
-    try:
-        target.relative_to(root.resolve())
-    except ValueError:
-        return None
-
-    if not target.exists() or not target.is_dir():
+    target = safe_resolve(root, rel_path)
+    if target is None or not target.is_dir():
         return None
 
     # Breadcrumb

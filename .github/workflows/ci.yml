@@ -1,0 +1,33 @@
+name: CI
+
+# The table self-updates by ``git pull``-ing this branch and restarting, so a
+# broken commit on main ships straight to the hardware.  This gate catches the
+# two cheapest classes of breakage before that happens: syntax errors in *any*
+# module (including the GStreamer/pyglet display code, via compileall, which
+# never imports them) and regressions in the pure logic suite.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Syntax-check every module (no project deps needed)
+        # compileall never imports, so it validates the GStreamer/pyglet
+        # display code too — without needing GL or the apt stack.
+        run: python -m compileall -q .
+
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the unit suite
+        run: pytest
