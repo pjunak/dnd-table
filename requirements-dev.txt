@@ -1,4 +1,4 @@
 # Dev-only dependencies (NOT installed on the table).  The unit suite is
 # deliberately pure — no Flask / pyglet / GStreamer — so this is all it needs.
 #   pip install -r requirements-dev.txt && pytest
-pytest>=8,<9
+pytest>=9.0.3,<10
