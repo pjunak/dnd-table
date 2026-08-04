@@ -8,6 +8,19 @@ venv/
 .venv/
 env/
 
+# Secrets and private keys
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
 # VS Code
 .vscode/
 
