@@ -24,11 +24,6 @@ id_ed25519
 # VS Code
 .vscode/
 
-# Claude
-.claude/
-CLAUDE.md
-CLAUDE.local.md
-
 # Local debug artifacts (screenshots from dev/verification)
 *.png
 !templates/**/*.png

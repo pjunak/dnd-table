@@ -1,6 +1,9 @@
-# AGENTS.md
+# D&D Table
 
-Guidance for working in this repo. Prose docs (install, usage, troubleshooting) live in [README.md](README.md); this file is the mental model, the invariants, and the gotchas.
+Repository-specific guidance. General working and Git behavior comes from the
+global/workspace instructions. Prose docs (install, usage, troubleshooting)
+live in [README.md](README.md); this file is the mental model, invariants, and
+gotchas.
 
 ## What this is
 

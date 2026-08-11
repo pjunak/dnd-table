@@ -64,7 +64,7 @@ sudo visudo -c -f /etc/sudoers.d/dnd-table > /dev/null
 echo "==> Deploying code to ${INSTALL_DIR}..."
 sudo mkdir -p "${INSTALL_DIR}"
 sudo rsync -a --delete \
-    --exclude='.git' --exclude='__pycache__' --exclude='.vscode' --exclude='.claude' \
+    --exclude='.git' --exclude='__pycache__' --exclude='.vscode' \
     --exclude='.venv' --exclude='*.png' --exclude='settings.json' \
     "${SCRIPT_DIR}/" "${INSTALL_DIR}/"
 sudo chown -R "${USER_NAME}:${USER_NAME}" "${INSTALL_DIR}"

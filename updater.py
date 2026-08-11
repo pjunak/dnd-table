@@ -33,7 +33,7 @@ _MUSIC_OUTPUT_URL = (
 # Must match install.sh — otherwise `rsync --delete` will wipe the venv,
 # user PNGs, and on-disk settings every time the updater runs.
 _RSYNC_EXCLUDES = (
-    ".git", "__pycache__", ".vscode", ".claude", ".gitignore",
+    ".git", "__pycache__", ".vscode", ".gitignore",
     ".venv", "*.png", "settings.json",
 )
 
