@@ -1,9 +1,16 @@
 # D&D Table
 
-Repository-specific guidance. General working and Git behavior comes from the
-global/workspace instructions. Prose docs (install, usage, troubleshooting)
+Repository-specific guidance. Preserve unrelated changes, commit validated task
+changes locally, and never push or deploy without explicit authorization. Prose docs (install, usage, troubleshooting)
 live in [README.md](README.md); this file is the mental model, invariants, and
 gotchas.
+
+## Read by task
+
+- Setup, installation and user flows: [README](README.md).
+- Display, import, geometry or hidden-content changes: the relevant invariants
+  and conventions below, then the owning pure module and tests.
+- Phone/tablet UI: the control-panel section below and the affected template.
 
 ## What this is
 
@@ -24,7 +31,8 @@ python main.py
 DND_WINDOWED=1 python -m dnd_display
 
 # Tests — pure, no Flask/pyglet/GStreamer needed; runs on any OS
-pip install -r requirements-dev.txt && pytest
+pip install -r requirements-dev.txt  # only for missing/stale test dependencies
+pytest
 
 # Syntax gate (what CI runs first; never imports, so it covers the GL code too)
 python -m compileall -q .
@@ -67,3 +75,15 @@ Single file, no build step, ES5-style vanilla JS (`var`, no modules, inline `onc
 ## Testing conventions
 
 Keep the suite **pure** (no Flask/pyglet/`gi` imports) so it runs anywhere with just `pytest`. New logic belongs in a pure module (like `paths.py`) with a unit test, not buried in a route or a GL layer. `pytest.ini` puts the repo root on `sys.path`.
+
+## Completion
+
+For prose or agent-guidance-only changes, review the diff, check local links,
+and verify changed commands or contract claims. Runtime builds and operational
+acceptance are required only for the affected behavior below. Reuse successful
+checks on unchanged inputs; preserve complete CI and release gates.
+
+For Python/runtime changes, run pytest and the documented compileall syntax
+gate. Inspect changed control-panel interactions when UI behavior changes.
+Display rendering, Wayland/GL, kiosk updates and attached hardware require
+separate device acceptance; pure tests do not establish those observations.
