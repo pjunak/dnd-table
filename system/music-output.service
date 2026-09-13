@@ -2,7 +2,7 @@
 # the remote music server (pjunak/music, music.junak.eu).
 #
 # install.sh deploys this to /etc/systemd/system/music-output.service and
-# the client itself to /opt/music-output/music_output.py.  All config
+# the client itself to /opt/music-output/music-output.  All config
 # (server URL, device name, control port, XDG_RUNTIME_DIR) lives in
 # /etc/music-output.env so the unit stays host-agnostic.
 [Unit]
@@ -19,7 +19,7 @@ User=dndtable
 # dndtable session's PipeWire socket; the audio group is the ALSA fallback.
 SupplementaryGroups=audio
 EnvironmentFile=/etc/music-output.env
-ExecStart=/usr/bin/python3 /opt/music-output/music_output.py
+ExecStart=/opt/music-output/music-output
 Restart=always
 RestartSec=3
 

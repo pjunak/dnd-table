@@ -1027,6 +1027,7 @@ function checkUpdate(){
   var status=document.getElementById('update-status');
   var commits=document.getElementById('update-commits');
   var applyBtn=document.getElementById('btn-update-apply');
+  _updateData=null;
   btn.textContent='Checking…';btn.disabled=true;
   status.style.display='block';
   status.textContent='Contacting GitHub…';
@@ -1036,7 +1037,7 @@ function checkUpdate(){
     btn.textContent='Check for Updates';btn.disabled=false;
     if(d.error){status.textContent='Error: '+d.error;return;}
     if(!d.available){
-      status.textContent='Up to date ('+d.current+')';
+      status.textContent='No newer tested commit. Installed: '+d.current+'; latest tested: '+d.latest+'.';
       status.style.color='var(--text-dim)';
       return;
     }
@@ -1059,12 +1060,13 @@ function checkUpdate(){
   });
 }
 function applyUpdate(){
-  if(!confirm('Update and restart the service?\n\nThe control panel will briefly disconnect while the service restarts.'))return;
+  if(!_updateData||!_updateData.sha)return;
+  if(!confirm('Install tested commit '+_updateData.latest+' and restart the service?\n\nThe control panel will briefly disconnect while the service restarts.'))return;
   var btn=document.getElementById('btn-update-apply');
   var status=document.getElementById('update-status');
   btn.textContent='Updating…';btn.disabled=true;
-  status.textContent='Pulling code and deploying…';
-  api('/update/apply',{}).then(function(d){
+  status.textContent='Verifying and installing the selected commit…';
+  api('/update/apply',{sha:_updateData.sha}).then(function(d){
     if(d.error){
       status.textContent='Update failed: '+d.error;
       status.style.color='var(--text)';

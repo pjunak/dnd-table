@@ -543,8 +543,9 @@ def register_routes(app):
 
     @app.route("/update/apply", methods=["POST"])
     def update_apply():
-        """Pull latest code, deploy, and restart the service."""
-        result = apply_update()
+        """Deploy the selected tested commit, then restart the service."""
+        data = request.get_json(silent=True) or {}
+        result = apply_update(data.get("sha") if isinstance(data, dict) else None)
         if result.get("ok"):
             subprocess.Popen(["sudo", "systemctl", "restart", "dnd-table.service"])
         return jsonify(result)

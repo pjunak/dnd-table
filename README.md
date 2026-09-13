@@ -55,14 +55,14 @@ sudo reboot
 `install.sh` is idempotent — re-run it any time you suspect drift. It:
 
 1. Enables `contrib` + `non-free` (for `i965-va-driver-shaders`)
-2. Installs apt packages: Flask, GStreamer + VA-API, mpv + libmpv + python3-mpv + python3-websocket (music output), greetd + cage + xwayland, PipeWire, Pillow, etc.
+2. Installs apt packages: Flask, GStreamer + VA-API, mpv (optional native music output), greetd + cage + xwayland, PipeWire, Pillow, etc.
 3. Creates `/opt/dnd-table/.venv` with `--system-site-packages` and pip-installs `requirements.txt` (moderngl, pyglet, sseclient-py)
 4. Adds `dndtable` to `video`, `render`, `input`, `audio` groups
 5. Writes a NOPASSWD sudoers rule for the specific commands Flask invokes
 6. Swaps `/etc/greetd/config.toml` to autologin `dndtable` into `cage /opt/dnd-table/kiosk.sh`
 7. Disables `getty@tty1` so greetd owns the console
 8. Installs and enables `dnd-table.service`
-9. Installs the headless music-output client to `/opt/music-output` + `music-output.service`, with `/etc/music-output.env` pointed at `music.junak.eu`
+9. Optionally installs a supplied native Music output binary; otherwise preserves any existing output installation.
 
 `uninstall.sh` reverses all of the above except the apt packages themselves.
 
@@ -102,7 +102,22 @@ Scenes use one canonical model (`dnd_display/scene.py`) that mirrors the **Unive
 
 ## Music output
 
-The table is a headless **audio output** for [pjunak/music](https://github.com/pjunak/music). A small guest client (`music_output.py`, from that repo's `clients/headless/`) runs as `music-output.service`, follows the server's playback over a WebSocket, and plays it through mpv → PipeWire. You queue and control tracks from the music server's own web UI (`music.junak.eu`); the DnD panel's **Music** card drives only *this output*: on/off, volume, mute, and a connection indicator.
+The table is a headless **audio output** for [pjunak/music](https://github.com/pjunak/music). A separate Rust guest client (`music-output`, built by that project) runs as `music-output.service`, follows the server's playback over a WebSocket, and plays it through mpv → PipeWire. You queue and control tracks from the music server's own web UI (`music.junak.eu`); the DnD panel's **Music** card drives only *this output*: on/off, volume, mute, and a connection indicator.
+
+The retired Python client is no longer downloaded by the table installer or updater.
+Build the native client from a tested Music commit using its
+[installation instructions](https://github.com/pjunak/music/tree/main/clients/headless),
+then opt in to installing that binary with:
+
+```bash
+MUSIC_OUTPUT_BINARY=/absolute/path/to/music-output bash install.sh
+```
+
+This retains `/etc/music-output.env` and the existing `dndtable` user's state.
+A normal table update leaves the music client and service alone. Existing Python
+installations can keep running until you deliberately replace them; remove their
+old `/opt/music-output/music_output.py` only after the native client plays correctly.
+New tables need this separate music setup to enable the Music card.
 
 Config lives in `/etc/music-output.env`:
 
@@ -118,11 +133,20 @@ The panel talks to the client through Flask (`/music/*` → `127.0.0.1:8731/cont
 
 From the panel: **Settings → Software Update → Check for Updates → Update & Restart**. The updater:
 
-1. `git pull` the local clone
-2. `rsync` to `/opt/dnd-table` (excluding `.venv`, `*.png`, `settings.json`)
-3. Recreate the venv if it's missing, `pip install -r requirements.txt`
-4. Re-fetch the music-output client and restart `music-output.service`
-5. Restart `dnd-table.service`
+1. Find the newest commit with a successful **main push** CI run (syntax and unit tests).
+2. Show its commit ID and changes; no version bump or personal token is needed.
+3. On Update, recheck CI and export exactly that selected commit. A newer untested
+   commit cannot slip in, and local edits in the source clone are never reset.
+4. Copy tracked files to `/opt/dnd-table`, retaining `.venv`, PNGs, settings and the
+   installed-revision marker; refresh Python requirements and service configuration.
+5. Record the installed commit, then restart `dnd-table.service`.
+
+If GitHub is unreachable or rate-limited, checking/installing stops with an error.
+The current installation keeps running. A changed candidate requires another check.
+On the first update from an older installation, the installed ID may be `unknown`;
+installing a tested commit records it for subsequent checks. The manual `install.sh`
+bootstrap installs the checked-out source; the panel's tested-commit rule applies
+once this updater is installed. Music updates remain separate and owner-controlled.
 
 The SSE bridge auto-reconnects within seconds of Flask coming back; the kiosk window doesn't go away.
 

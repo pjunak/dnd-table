@@ -38,7 +38,11 @@ pytest
 python -m compileall -q .
 ```
 
-The table **self-updates**: the panel's updater does `git pull` on the repo clone, `rsync`s to `/opt/dnd-table`, and restarts the service. A broken commit on `main` ships straight to hardware — CI (`.github/workflows/ci.yml`) gates `compileall` + `pytest` to catch the cheap breakage.
+The table **self-updates** only when its owner clicks Update. The updater selects a
+successful main-push run of `.github/workflows/ci.yml`, rechecks the selected full
+SHA, exports tracked files from that exact commit, and deploys them without
+changing the source clone. Never fall back to untested main or reset local edits.
+The installed revision marker is server-owned and preserved during rsync.
 
 ## Three directories, don't confuse them
 

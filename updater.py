@@ -1,8 +1,8 @@
 """
 DnD Table – Self-update from GitHub.
 
-Checks the remote repository for new commits, pulls changes into the
-local git clone, rsyncs to /opt/dnd-table, and restarts the service.
+Checks successful GitHub CI runs, exports the exact selected commit, and
+deploys it to /opt/dnd-table. The source clone and local edits stay untouched.
 
 The install directory (/opt/dnd-table) is a plain copy — not a git repo.
 The git repo lives wherever the project was originally cloned (typically
@@ -13,6 +13,12 @@ repo path is embedded; on subsequent updates we resolve it at runtime.
 import logging
 import os
 import subprocess
+import tarfile
+import tempfile
+import threading
+from pathlib import Path
+
+from tested_updates import fetch_successful_commits, valid_sha
 
 log = logging.getLogger(__name__)
 
@@ -22,19 +28,13 @@ REMOTE = "origin"
 BRANCH = "main"
 REPO_URL = "https://github.com/pjunak/dnd-table"
 
-# Headless music-output client (pjunak/music) — lives outside the repo at
-# /opt/music-output and is refreshed from upstream on each update.
-_MUSIC_OUTPUT_PY = "/opt/music-output/music_output.py"
-_MUSIC_OUTPUT_URL = (
-    "https://raw.githubusercontent.com/pjunak/music/main/"
-    "clients/headless/music_output.py"
-)
+_UPDATE_LOCK = threading.Lock()
 
 # Must match install.sh — otherwise `rsync --delete` will wipe the venv,
 # user PNGs, and on-disk settings every time the updater runs.
 _RSYNC_EXCLUDES = (
     ".git", "__pycache__", ".vscode", ".gitignore",
-    ".venv", "*.png", "settings.json",
+    ".venv", "*.png", "settings.json", ".installed-revision",
 )
 
 
@@ -80,60 +80,51 @@ def _ensure_repo():
     return False
 
 
-def check_for_update():
-    """Check if a newer version is available on the remote.
-
-    Returns dict with:
-      available (bool) — True if remote has new commits
-      current  (str)   — short hash of current HEAD
-      latest   (str)   — short hash of remote HEAD
-      commits  (list)  — list of {hash, subject, date} for new commits
-      error    (str)   — error message if something went wrong
-    """
+def _tested_target():
     if not _ensure_repo():
-        return {"available": False, "error": "No git repository found"}
+        raise ValueError("No git repository found")
+    fetch = _git("fetch", REMOTE, BRANCH, timeout=60)
+    if fetch.returncode:
+        raise ValueError("Failed to fetch the update repository")
+    for sha in fetch_successful_commits():
+        if _git("merge-base", "--is-ancestor", sha, f"{REMOTE}/{BRANCH}").returncode == 0:
+            return sha
+    raise ValueError("No tested commit belongs to the current main branch")
 
-    # Fetch latest from remote
-    fetch = _git("fetch", REMOTE, BRANCH, timeout=30)
-    if fetch.returncode != 0:
-        return {"available": False, "error": "Failed to reach GitHub: " + fetch.stderr.strip()}
 
-    # Current local HEAD
-    local = _git("rev-parse", "--short", "HEAD")
-    local_hash = local.stdout.strip() if local.returncode == 0 else "unknown"
+def _installed_revision():
+    try:
+        sha = Path(INSTALL_DIR, ".installed-revision").read_text().strip()
+        return sha if valid_sha(sha) else ""
+    except OSError:
+        return ""
 
-    local_full = _git("rev-parse", "HEAD")
-    local_full_hash = local_full.stdout.strip() if local_full.returncode == 0 else ""
 
-    # Remote HEAD
-    remote = _git("rev-parse", "--short", f"{REMOTE}/{BRANCH}")
-    remote_hash = remote.stdout.strip() if remote.returncode == 0 else "unknown"
-
-    remote_full = _git("rev-parse", f"{REMOTE}/{BRANCH}")
-    remote_full_hash = remote_full.stdout.strip() if remote_full.returncode == 0 else ""
-
-    if local_full_hash == remote_full_hash:
-        return {"available": False, "current": local_hash, "latest": remote_hash,
-                "commits": []}
-
-    # List new commits
-    log_result = _git(
-        "log", f"HEAD..{REMOTE}/{BRANCH}",
-        "--pretty=format:%h|%s|%cr", "--no-merges",
-    )
-    commits = []
-    if log_result.returncode == 0 and log_result.stdout.strip():
-        for line in log_result.stdout.strip().splitlines():
-            parts = line.split("|", 2)
-            if len(parts) == 3:
-                commits.append({"hash": parts[0], "subject": parts[1], "date": parts[2]})
-
-    return {
-        "available": True,
-        "current": local_hash,
-        "latest": remote_hash,
-        "commits": commits,
-    }
+def check_for_update():
+    """Offer the newest successful main commit, never the moving branch tip."""
+    if not _UPDATE_LOCK.acquire(blocking=False):
+        return {"available": False, "error": "An update is already running"}
+    try:
+        target = _tested_target()
+        current = _installed_revision()
+        # A delayed CI rerun must not downgrade a newer installation.
+        newer_installed = bool(current and _git(
+            "merge-base", "--is-ancestor", target, current).returncode == 0)
+        commits = []
+        history = _git("log", f"{current}..{target}" if current else target,
+                       "-n", "20", "--pretty=format:%h|%s|%cr", "--no-merges")
+        if history.returncode == 0:
+            for line in history.stdout.splitlines():
+                parts = line.split("|", 2)
+                if len(parts) == 3:
+                    commits.append(dict(zip(("hash", "subject", "date"), parts)))
+        return {"available": not newer_installed, "current": current[:7] or "unknown",
+                "latest": target[:7], "sha": target, "commits": commits}
+    except Exception as error:
+        log.warning("Update check failed: %s", error)
+        return {"available": False, "error": str(error)}
+    finally:
+        _UPDATE_LOCK.release()
 
 
 def _ensure_venv():
@@ -184,104 +175,59 @@ def _ensure_venv():
     return True, ""
 
 
-def _refresh_music_output():
-    """Best-effort refresh of the headless music-output client.
-
-    The client lives outside the repo (/opt/music-output, owned by the
-    service user) and tracks upstream pjunak/music, so re-fetch it on
-    update.  Non-fatal: the existing copy keeps working if the download
-    fails, and the whole step is skipped on boxes without the output.
-    """
-    if not os.path.isdir(os.path.dirname(_MUSIC_OUTPUT_PY)):
-        return
-    try:
-        # The dir is owned by the service user, so refreshing the client
-        # itself needs no sudo; only the unit file (in /etc) needs root.
-        subprocess.run(
-            ["curl", "-fsSL", _MUSIC_OUTPUT_URL, "-o", _MUSIC_OUTPUT_PY],
-            capture_output=True, timeout=30,
-        )
-        subprocess.run(
-            ["sudo", "cp", f"{INSTALL_DIR}/system/music-output.service",
-             "/etc/systemd/system/music-output.service"],
-            capture_output=True, timeout=5,
-        )
-    except Exception as e:
-        log.warning("music-output refresh failed: %s", e)
-
-
-def apply_update():
-    """Pull the latest code and deploy to the install directory.
-
-    Returns dict with:
-      ok    (bool) — True if update succeeded
-      error (str)  — error message on failure
-    """
-    if not _ensure_repo():
-        return {"ok": False, "error": "No git repository found"}
-
-    # Pull latest
-    pull = _git("pull", REMOTE, BRANCH, timeout=60)
-    if pull.returncode != 0:
-        # Try reset if local changes conflict
-        _git("reset", "--hard", f"{REMOTE}/{BRANCH}")
-        pull = _git("pull", REMOTE, BRANCH, timeout=60)
-        if pull.returncode != 0:
-            return {"ok": False, "error": "git pull failed: " + pull.stderr.strip()}
-
-    # Build rsync command
-    rsync_cmd = [
-        "sudo", "rsync", "-a", "--delete",
-    ]
-    for exc in _RSYNC_EXCLUDES:
-        rsync_cmd += ["--exclude", exc]
-    rsync_cmd += [REPO_DIR.rstrip("/") + "/", INSTALL_DIR + "/"]
-
-    try:
-        result = subprocess.run(
-            rsync_cmd, capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            return {"ok": False, "error": "rsync failed: " + result.stderr.strip()}
-    except Exception as e:
-        return {"ok": False, "error": f"rsync error: {e}"}
-
-    # Fix ownership
-    subprocess.run(
-        ["sudo", "chown", "-R", "dndtable:dndtable", INSTALL_DIR],
-        capture_output=True, timeout=10,
-    )
-    subprocess.run(
-        ["sudo", "chmod", "+x", f"{INSTALL_DIR}/kiosk.sh"],
-        capture_output=True, timeout=5,
-    )
-
-    # Ensure the venv exists and requirements are up to date.  Without
-    # this the kiosk falls through to the chromium GPU-probe fallback
-    # because /opt/dnd-table/.venv/bin/python is missing or stale.
-    ok, err = _ensure_venv()
+def _deploy_commit(sha):
+    # Export tracked files from the chosen object. Never pull/reset the operator's
+    # clone, and never deploy unrelated untracked files from that clone.
+    with tempfile.TemporaryDirectory(prefix="dnd-table-update-") as scratch:
+        archive = Path(scratch, "source.tar")
+        source = Path(scratch, "source")
+        source.mkdir()
+        export = _git("archive", "--format=tar", "-o", str(archive), sha, timeout=60)
+        if export.returncode:
+            raise ValueError("Could not export the tested commit")
+        with tarfile.open(archive) as package:
+            package.extractall(source, filter="data")
+        command = ["sudo", "rsync", "-a", "--delete"]
+        for excluded in _RSYNC_EXCLUDES:
+            command += ["--exclude", excluded]
+        command += [str(source) + "/", INSTALL_DIR + "/"]
+        subprocess.run(command, capture_output=True, text=True, timeout=60, check=True)
+    subprocess.run(["sudo", "chown", "-R", "dndtable:dndtable", INSTALL_DIR],
+                   capture_output=True, timeout=15, check=True)
+    subprocess.run(["sudo", "chmod", "+x", f"{INSTALL_DIR}/kiosk.sh"],
+                   capture_output=True, timeout=5, check=True)
+    ok, error = _ensure_venv()
     if not ok:
-        return {"ok": False, "error": err}
+        raise ValueError(error)
+    subprocess.run(["sudo", "cp", f"{INSTALL_DIR}/dnd-table.service",
+                    "/etc/systemd/system/dnd-table.service"],
+                   capture_output=True, timeout=5, check=True)
+    subprocess.run(["sudo", "systemctl", "daemon-reload"],
+                   capture_output=True, timeout=10, check=True)
+    marker = Path(INSTALL_DIR, ".installed-revision")
+    pending = marker.with_suffix(".tmp")
+    pending.write_text(sha + "\n", encoding="ascii")
+    pending.replace(marker)
 
-    # Refresh the headless music-output client (lives outside the repo).
-    _refresh_music_output()
 
-    # Reload service files in case they changed
-    subprocess.run(
-        ["sudo", "cp", f"{INSTALL_DIR}/dnd-table.service",
-         "/etc/systemd/system/dnd-table.service"],
-        capture_output=True, timeout=5,
-    )
-    subprocess.run(
-        ["sudo", "systemctl", "daemon-reload"],
-        capture_output=True, timeout=10,
-    )
-    # Pick up a refreshed music client (best-effort; the Flask service
-    # itself is restarted by the /update/apply route).
-    subprocess.run(
-        ["sudo", "systemctl", "restart", "music-output.service"],
-        capture_output=True, timeout=10,
-    )
-
-    log.info("Update applied from %s to %s", REPO_DIR, INSTALL_DIR)
-    return {"ok": True}
+def apply_update(expected_sha):
+    """Recheck CI and install the exact commit the owner selected in the panel."""
+    if not valid_sha(expected_sha):
+        return {"ok": False, "error": "Check for updates and select a tested commit first"}
+    if not _UPDATE_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "An update is already running"}
+    try:
+        target = _tested_target()
+        if target != expected_sha:
+            raise ValueError("The available tested commit changed; check for updates again")
+        current = _installed_revision()
+        if current and _git("merge-base", "--is-ancestor", target, current).returncode == 0:
+            raise ValueError("This commit is already installed or older than your installation")
+        _deploy_commit(target)
+        log.info("Installed tested commit %s", target)
+        return {"ok": True, "sha": target}
+    except Exception as error:
+        log.exception("Update failed")
+        return {"ok": False, "error": str(error)}
+    finally:
+        _UPDATE_LOCK.release()

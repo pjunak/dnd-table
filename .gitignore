@@ -28,3 +28,7 @@ id_ed25519
 *.png
 !templates/**/*.png
 !static/**/*.png
+
+# Installed build marker (server-owned)
+.installed-revision
+.installed-revision.tmp
