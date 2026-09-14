@@ -43,6 +43,10 @@ successful main-push run of `.github/workflows/ci.yml`, rechecks the selected fu
 SHA, exports tracked files from that exact commit, and deploys them without
 changing the source clone. Never fall back to untested main or reset local edits.
 The installed revision marker is server-owned and preserved during rsync.
+This device update is independent of the VPS deployment in `pjunak/infra` and
+does not use `INFRA_DISPATCH_TOKEN`. Music server releases deploy separately;
+the [native output installation](README.md#music-output) has its own owner-controlled
+installation and update path.
 
 ## Three directories, don't confuse them
 
