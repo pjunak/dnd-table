@@ -29,7 +29,7 @@ ALLOWED_EXTENSIONS = {
 PROTECTED_FOLDERS = ["Maps", "Videos"]
 
 # ─── Music output (headless client control surface) ──────────────
-# The table runs pjunak/music's `music_output.py` as a systemd service;
+# The table runs pjunak/music's Rust `music-output` as a systemd service;
 # it serves a localhost on/off + volume control surface that Flask
 # proxies (see music.py).  The port mirrors MUSIC_CONTROL_PORT in
 # /etc/music-output.env — read from the environment (dnd-table.service

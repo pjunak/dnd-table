@@ -87,24 +87,8 @@ sudo chown -R "${USER_NAME}:${USER_NAME}" "${MEDIA_DIR}"
 sudo -u "${USER_NAME}" mkdir -p "${USER_HOME}/dnd-display"
 
 # ── 9. Headless music output (pjunak/music) ──────────────────────
-# Music is a separate project. Only replace its installation when the operator
-# supplies a native binary built from a tested Music commit. Existing client,
-# configuration and identity remain untouched on ordinary table installs.
-if [ -n "${MUSIC_OUTPUT_BINARY:-}" ]; then
-    test -f "$MUSIC_OUTPUT_BINARY" || { echo "Music binary not found" >&2; exit 1; }
-    sudo install -D -m 0755 "$MUSIC_OUTPUT_BINARY" /opt/music-output/music-output
-    if [ ! -f /etc/music-output.env ]; then
-        sudo tee /etc/music-output.env > /dev/null <<EOF
-MUSIC_SERVER_URL=https://music.junak.eu
-MUSIC_OUTPUT_NAME=DnD Table
-MUSIC_CONTROL_PORT=8731
-XDG_RUNTIME_DIR=/run/user/$(id -u "${USER_NAME}")
-EOF
-    fi
-    sudo cp "${INSTALL_DIR}/system/music-output.service" /etc/systemd/system/
-else
-    echo "==> Keeping the existing Music output; see README for a new native installation."
-fi
+# Audio has a separate tested-release installer; table setup never changes it.
+echo "==> Keeping Music unchanged. Install or update it separately: bash install-music.sh"
 
 # ── 10. greetd config — autologin into cage ────────────────────
 echo "==> Configuring greetd..."
@@ -122,10 +106,6 @@ sudo cp "${INSTALL_DIR}/dnd-table.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable avahi-daemon greetd dnd-table.service
 sudo systemctl restart dnd-table.service || true
-if [ -n "${MUSIC_OUTPUT_BINARY:-}" ]; then
-    sudo systemctl enable --now music-output.service
-    sudo systemctl restart music-output.service
-fi
 
 echo ""
 echo "==> Done."

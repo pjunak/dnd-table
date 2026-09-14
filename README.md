@@ -104,30 +104,59 @@ Scenes use one canonical model (`dnd_display/scene.py`) that mirrors the **Unive
 
 The table is a headless **audio output** for [pjunak/music](https://github.com/pjunak/music). A separate Rust guest client (`music-output`, built by that project) runs as `music-output.service`, follows the server's playback over a WebSocket, and plays it through mpv → PipeWire. You queue and control tracks from the music server's own web UI (`music.junak.eu`); the DnD panel's **Music** card drives only *this output*: on/off, volume, mute, and a connection indicator.
 
-The retired Python client is no longer downloaded by the table installer or updater.
-Build the native client from a tested Music commit using its
-[installation instructions](https://github.com/pjunak/music/tree/main/clients/headless),
-then opt in to installing that binary with:
+Music publishes a ready-to-run **Linux x86-64** download after its release checks
+pass. Updates follow tested commits, independently of version numbers. The table
+owner chooses when to install them; neither a Music server deployment nor the
+normal table Update button changes the audio player.
+
+First update the table through its **Update** panel so this installer is available.
+Then connect to the table over SSH and run:
 
 ```bash
-MUSIC_OUTPUT_BINARY=/absolute/path/to/music-output bash install.sh
+cd /opt/dnd-table
+bash install-music.sh
 ```
 
-This retains `/etc/music-output.env` and the existing `dndtable` user's state.
-A normal table update leaves the music client and service alone. Existing Python
-installations can keep running until you deliberately replace them; remove their
-old `/opt/music-output/music_output.py` only after the native client plays correctly.
-New tables need this separate music setup to enable the Music card.
+The same command installs or updates Music. It downloads the latest published
+package, checks its checksum and commit ID, tests binary compatibility, and restarts
+only `music-output.service`. It needs sudo, mpv and system CA certificates (the table
+already installs mpv). No Rust compiler, GitHub login or personal token is required.
+The download supports Debian 13 / Ubuntu 24.04 or newer; the table uses Debian 13.
 
-Config lives in `/etc/music-output.env`:
+Existing `/etc/music-output.env` settings and the `dndtable` user's saved client ID
+are retained. Fresh installs connect to `https://music.junak.eu`, appear as **DnD Table**,
+and expose the table's loopback control endpoint on port 8731. Edit the env file to
+change the server or name, then run `sudo systemctl restart music-output`.
 
+The installer saves the previous binary and service under `/var/backups/music-output`.
+If the new service fails to start, it restores them automatically. To roll back
+manually while retaining current settings:
+
+```bash
+cd /opt/dnd-table
+bash install-music.sh --rollback
 ```
-MUSIC_SERVER_URL=https://music.junak.eu   # the music server
-MUSIC_OUTPUT_NAME=DnD Table               # shown in the server's Outputs picker
-MUSIC_CONTROL_PORT=8731                   # localhost control surface Flask proxies
-```
 
-The panel talks to the client through Flask (`/music/*` → `127.0.0.1:8731/control`), so the control port never has to leave the box. Point the table at a different server by editing `MUSIC_SERVER_URL` and `sudo systemctl restart music-output`.
+To install a specific published commit, supply its full release name:
+`bash install-music.sh music-output-<40-character commit ID>`.
+Running the installer again when that exact package is already installed changes
+nothing and retains the previous rollback.
+
+### Hardware check and legacy cleanup
+
+When the table and speakers are available, check that the output appears once,
+plays a track and overlapping sound effects, and responds to pause, seek, volume
+and mute. Restart it and confirm its identity and selected speaker are retained.
+Finish with a 30-minute playback check. The complete
+[Music acceptance checklist](https://github.com/pjunak/music/tree/main/clients/headless#rust-cutover-acceptance-on-the-intended-speaker)
+also covers reconnection and mpv recovery. Automated installation checks do not
+prove the physical audio route.
+
+Keep the old `/opt/music-output/music_output.py` and its old runtime environment
+until this passes; they are no longer installed or downloaded, but an old service
+backup may still need them for rollback. After acceptance, those retired files and
+unneeded Music-only backups can be removed. Keep `/etc/music-output.env` and
+`~dndtable/.config/music-output/client-id` (or the configured `MUSIC_STATE_DIR`).
 
 ## Updating
 

@@ -1,7 +1,7 @@
 """
 DnD Table – Music output proxy (Flask-side).
 
-The table runs pjunak/music's headless ``music_output.py`` as a systemd
+The table runs pjunak/music's headless Rust ``music-output`` as a systemd
 service (see system/music-output.service).  That client connects to the
 remote music server (``music.junak.eu``) as an audio *output*, plays the
 current track through mpv, and serves a tiny localhost control surface —
@@ -11,7 +11,7 @@ This module proxies that surface so the control panel stays same-origin
 (browser → Flask → 127.0.0.1:8731) and so "is the output reachable?"
 becomes a clean boolean the panel can render.
 
-Control-surface contract (from clients/headless/music_output.py):
+Control-surface contract (from crates/music-output/src/control.rs):
     GET  /control → {"on", "volume" (0..1), "is_playing",
                      "track_id", "title", "artist"}
     POST /control  {"on": bool} and/or {"volume": 0..1}  → same shape

@@ -32,8 +32,20 @@ jobs:
         # display code too — without needing GL or the apt stack.
         run: python -m compileall -q .
 
+      - name: Check installer shell syntax
+        run: bash -n install.sh install-music.sh
+
       - name: Install test dependencies
         run: pip install -r requirements-dev.txt
 
       - name: Run the unit suite
         run: pytest
+
+
+      - name: Validate the Music service template on Linux
+        run: |
+          sudo useradd --system --create-home --home-dir /home/dndtable dndtable
+          sudo install -D -m 0755 /bin/true /opt/music-output/music-output
+          sed -e 's|@HOME@|/home/dndtable|g' -e "s|@UID@|$(id -u dndtable)|g" \
+            system/music-output.service > "$RUNNER_TEMP/music-output.service"
+          systemd-analyze verify "$RUNNER_TEMP/music-output.service"
