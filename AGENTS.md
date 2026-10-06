@@ -1,9 +1,9 @@
 # D&D Table
 
-Repository-specific guidance. Preserve unrelated changes, commit validated task
-changes locally, and never push or deploy without explicit authorization. Prose docs (install, usage, troubleshooting)
-live in [README.md](README.md); this file is the mental model, invariants, and
-gotchas.
+A personal project with one owner and one physical table. Favour simple, clear
+code over extra hardening or process. Prose docs (install, usage,
+troubleshooting) live in [README.md](README.md); this file is the mental model,
+invariants, and gotchas.
 
 ## Read by task
 
@@ -43,10 +43,9 @@ successful main-push run of `.github/workflows/ci.yml`, rechecks the selected fu
 SHA, exports tracked files from that exact commit, and deploys them without
 changing the source clone. Never fall back to untested main or reset local edits.
 The installed revision marker is server-owned and preserved during rsync.
-This device update is independent of the VPS deployment in `pjunak/infra` and
-does not use `INFRA_DISPATCH_TOKEN`. Music server releases deploy separately;
-the [native output installation](README.md#music-output) has its own owner-controlled
-installation and update path.
+The table is not deployed by `pjunak/infra`. The Music
+[native output installation](README.md#music-output) has its own
+owner-controlled install and update path.
 
 ## Three directories, don't confuse them
 
@@ -86,12 +85,13 @@ Keep the suite **pure** (no Flask/pyglet/`gi` imports) so it runs anywhere with 
 
 ## Completion
 
-For prose or agent-guidance-only changes, review the diff, check local links,
-and verify changed commands or contract claims. Runtime builds and operational
-acceptance are required only for the affected behavior below. Reuse successful
-checks on unchanged inputs; preserve complete CI and release gates.
+Documentation-only changes need a diff review, link check and verification of
+changed claims.
 
 For Python/runtime changes, run pytest and the documented compileall syntax
 gate. Inspect changed control-panel interactions when UI behavior changes.
-Display rendering, Wayland/GL, kiosk updates and attached hardware require
-separate device acceptance; pure tests do not establish those observations.
+Display rendering, Wayland/GL, kiosk updates and attached hardware need a test
+on the device; say so when that was not possible.
+
+Commit locally after validation. Never push without explicit approval; a push
+to main makes a new build available to the table.
